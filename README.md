@@ -30,11 +30,23 @@ A dynamic platform plugin for [Homebridge](https://homebridge.io) that gives you
 
 ## Installation
 
-1. Install Homebridge using the [official instructions](https://github.com/homebridge/homebridge).
-2. Install this plugin:
-   ```bash
-   npm install -g homebridge-trinnov-altitude
-   ```
+### Option 1: Install Directly from GitHub (Homebridge Terminal / SSH)
+
+In the **Homebridge UI** (open the top-right menu → **Terminal**) or via SSH on your Homebridge server, run:
+
+```bash
+# If using hb-service (Homebridge OS / Raspberry Pi / Linux / macOS service):
+hb-service add git+https://github.com/jeremylatrasse/homebridge-trinnov.git
+
+# Or using npm directly:
+sudo npm install -g git+https://github.com/jeremylatrasse/homebridge-trinnov.git
+```
+
+### Option 2: Install from npm (Once Published)
+
+```bash
+npm install -g homebridge-trinnov-altitude
+```
 
 ---
 
