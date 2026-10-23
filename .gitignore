@@ -1,7 +1,23 @@
+# Dependency directories
 node_modules/
-dist/
+
+# Logs
+logs
 *.log
+npm-debug.log*
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# OS & Editor metadata
 .DS_Store
 .vscode/
 .idea/
-*.tsbuildinfo
+
+# Xcode project & workspace files
+*.xcodeproj/
+*.pbxproj
+*.xcworkspace/
+DerivedData/
+.build/
+Products/

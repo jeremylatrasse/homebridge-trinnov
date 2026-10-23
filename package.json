@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "description": "Homebridge dynamic platform plugin for Trinnov Altitude32 (and Altitude16) high-end audio processors over Ethernet.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeremylatrasse/homebridge-trinnov.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jeremylatrasse/homebridge-trinnov/issues"
+  },
+  "homepage": "https://github.com/jeremylatrasse/homebridge-trinnov#readme",
   "keywords": [
     "homebridge-plugin",
     "trinnov",
@@ -31,6 +39,7 @@
     "check": "tsc --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo",
     "test": "npm run build && node test-trinnov.mjs",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {},
