@@ -28,7 +28,10 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "prepublishOnly": "npm run build"
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "npm run build && node test-trinnov.mjs",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {},
   "devDependencies": {

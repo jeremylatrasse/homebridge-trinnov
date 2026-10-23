@@ -2,5 +2,9 @@ src/
 .github/
 .vscode/
 tsconfig.json
+Makefile
+test-trinnov.mjs
+*.xcodeproj/
+*.xcworkspace/
 *.log
 .DS_Store
