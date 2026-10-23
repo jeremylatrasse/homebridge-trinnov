@@ -1,0 +1,131 @@
+{
+  "pluginAlias": "TrinnovAltitude",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Trinnov Altitude32 / Altitude16 Homebridge Integration",
+  "footerDisplay": "For support and documentation, visit https://github.com/homebridge-trinnov-altitude",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform Name",
+        "type": "string",
+        "default": "Trinnov Altitude"
+      },
+      "devices": {
+        "title": "Trinnov Altitude Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "title": "Trinnov Altitude Processor",
+          "required": ["host"],
+          "properties": {
+            "name": {
+              "title": "Device Name",
+              "type": "string",
+              "default": "Trinnov Altitude32",
+              "description": "The name of the processor as shown in Apple Home."
+            },
+            "host": {
+              "title": "IP Address / Hostname",
+              "type": "string",
+              "format": "hostname",
+              "placeholder": "192.168.1.100",
+              "description": "Ethernet IP address of the Trinnov Altitude."
+            },
+            "port": {
+              "title": "Automation Port",
+              "type": "integer",
+              "default": 44100,
+              "description": "Trinnov ASCII automation TCP port (default is 44100)."
+            },
+            "mac": {
+              "title": "MAC Address (for Wake-on-LAN)",
+              "type": "string",
+              "placeholder": "00:1E:06:12:34:56",
+              "description": "The Altitude network interface MAC address. Required for Power On, as the Trinnov processor enters complete standby and wakes via WoL magic packets."
+            },
+            "minVolumeDb": {
+              "title": "Minimum Volume (dB)",
+              "type": "number",
+              "default": -90.0,
+              "description": "Volume corresponding to 0% in HomeKit (default: -90.0 dB)."
+            },
+            "maxVolumeDb": {
+              "title": "Maximum Volume (dB)",
+              "type": "number",
+              "default": 0.0,
+              "description": "Volume corresponding to 100% in HomeKit (default: 0.0 dB; protects speakers from accidental max volume)."
+            },
+            "enableVolumeSlider": {
+              "title": "Enable Companion Volume Slider",
+              "type": "boolean",
+              "default": true,
+              "description": "Exposes an in-room slider in Apple Home for quick volume and mute adjustments without needing the iOS Remote widget."
+            },
+            "enableMuteSwitch": {
+              "title": "Enable Mute Switch",
+              "type": "boolean",
+              "default": false,
+              "description": "Exposes a standalone Mute toggle switch in Apple Home."
+            },
+            "enableBypassSwitch": {
+              "title": "Enable Optimizer Bypass Switch",
+              "type": "boolean",
+              "default": false,
+              "description": "Exposes a toggle switch to bypass or engage the Trinnov Acoustic Optimizer."
+            },
+            "inputs": {
+              "title": "Input Sources (Profiles)",
+              "type": "array",
+              "description": "Trinnov Profile sources visible in Apple Home and iOS Remote app.",
+              "items": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                  "id": {
+                    "title": "Profile Index",
+                    "type": "integer",
+                    "default": 0
+                  },
+                  "name": {
+                    "title": "Input Name",
+                    "type": "string",
+                    "placeholder": "Apple TV"
+                  },
+                  "type": {
+                    "title": "Source Type",
+                    "type": "string",
+                    "default": "HDMI",
+                    "enum": ["HDMI", "AUDIO_SYSTEM", "OTHER"]
+                  }
+                }
+              }
+            },
+            "presets": {
+              "title": "Presets (Optional Switches)",
+              "type": "array",
+              "description": "Expose specific Trinnov room correction presets as individual switches in Apple Home.",
+              "items": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                  "id": {
+                    "title": "Preset Index",
+                    "type": "integer",
+                    "default": 1
+                  },
+                  "name": {
+                    "title": "Preset Name",
+                    "type": "string",
+                    "placeholder": "Reference Movie"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
