@@ -21,10 +21,10 @@
           "required": ["host"],
           "properties": {
             "name": {
-              "title": "Device Name",
+              "title": "Receiver Name",
               "type": "string",
               "default": "Trinnov Altitude32",
-              "description": "The name of the processor as shown in Apple Home."
+              "description": "The name of the Receiver accessory as shown in Apple Home."
             },
             "host": {
               "title": "IP Address / Hostname",
@@ -63,42 +63,36 @@
               "default": "fan",
               "oneOf": [
                 {
-                  "title": "Fan Slider (0-100% slider, immune to 'Turn off the lights')",
+                  "title": "Fan Slider (0-100% slider on the Receiver, immune to 'Turn off the lights')",
                   "enum": ["fan"]
                 },
                 {
-                  "title": "Light Dimmer Slider (0-100% brightness slider)",
+                  "title": "Light Dimmer Slider (0-100% brightness slider on the Receiver)",
                   "enum": ["lightbulb"]
                 },
                 {
-                  "title": "None (Use Apple TV Remote / Receiver volume only)",
+                  "title": "None (Use Apple TV Remote / hardware volume buttons only)",
                   "enum": ["none"]
                 }
               ],
-              "description": "Choose how the in-room 0-100% volume slider is exposed in Apple Home. Note: Apple TV Remote volume control always works via the Receiver accessory."
+              "description": "Optional in-room 0-100% volume slider attached to the Receiver accessory. Apple TV Remote volume control always works via the Receiver's speaker service."
             },
             "enableMuteSwitch": {
               "title": "Enable Dedicated Mute Switch",
               "type": "boolean",
               "default": false,
-              "description": "Exposes a standalone Mute toggle switch in Apple Home."
+              "description": "Exposes a Mute toggle switch on the Receiver."
             },
             "enableBypassSwitch": {
               "title": "Enable Optimizer Bypass Switch",
               "type": "boolean",
               "default": false,
-              "description": "Exposes a toggle switch to bypass or engage the Trinnov Acoustic Optimizer."
-            },
-            "enableTvAccessory": {
-              "title": "Publish Receiver Accessory for Apple TV Remote",
-              "type": "boolean",
-              "default": true,
-              "description": "Publishes the Audio Receiver accessory so the iOS Control Center Apple TV Remote widget and iPhone hardware volume buttons control the Trinnov volume."
+              "description": "Exposes a toggle switch on the Receiver to bypass or engage the Trinnov Acoustic Optimizer."
             },
             "inputs": {
               "title": "Named Input Sources (Profiles)",
               "type": "array",
-              "description": "Only profiles with a name entered here will be exposed to HomeKit. Unnamed profiles are ignored.",
+              "description": "Only profiles with a name entered here will appear in the Receiver's input picker. Unnamed profiles are ignored.",
               "items": {
                 "type": "object",
                 "required": ["id", "name"],
@@ -125,7 +119,7 @@
             "presets": {
               "title": "Named Presets",
               "type": "array",
-              "description": "Only presets with a name entered here will be exposed to HomeKit. Unnamed presets are ignored.",
+              "description": "Only presets with a name entered here will be exposed on the Receiver. Unnamed presets are ignored.",
               "items": {
                 "type": "object",
                 "required": ["id", "name"],
