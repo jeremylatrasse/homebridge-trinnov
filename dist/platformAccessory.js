@@ -43,8 +43,8 @@ function isExplicitlyNamed(rawName) {
  * The ONLY accessory exposed to HomeKit.
  *
  * Exposes:
- * - Service.Television (`AUDIO_RECEIVER`): Power (WoL / Standby), Input Source selector, and Apple TV Remote widget
- * - Service.TelevisionSpeaker: Hardware volume rocker & Apple TV Remote volume control (`RELATIVE_WITH_CURRENT`)
+ * - Service.Television (`AUDIO_RECEIVER`): Power (WoL / Standby), Input Source selector, and Control Center Remote
+ * - Service.TelevisionSpeaker: Hardware volume rocker in iOS Control Center Remote when Trinnov is selected
  * - Service.InputSource: Explicitly named Trinnov Profiles (unnamed profiles are ignored)
  * - In-Room Volume Slider (`Service.Fan` or `Service.Lightbulb`) & Explicitly Named Preset switches on the same Receiver accessory
  */
@@ -75,7 +75,7 @@ class TrinnovReceiverAccessory {
             .setCharacteristic(Characteristic.Model, 'Altitude32')
             .setCharacteristic(Characteristic.SerialNumber, `TRINNOV-${this.deviceConfig.host}`)
             .setCharacteristic(Characteristic.FirmwareRevision, settings_1.PLUGIN_VERSION);
-        // 2. Primary Television / Receiver Service (marked as Primary Service!)
+        // 2. Primary Television / Receiver Service
         this.tvService = this.accessory.getService(Service.Television) ||
             this.accessory.addService(Service.Television, cleanName, 'altitude-receiver');
         this.tvService.setPrimaryService(true);
@@ -92,6 +92,7 @@ class TrinnovReceiverAccessory {
         })
             .onSet(async (value) => {
             const targetActive = value === Characteristic.Active.ACTIVE;
+            this.platform.log.info(`[${cleanName}] HomeKit Power set -> ${targetActive ? 'ON' : 'OFF'}`);
             if (targetActive) {
                 await this.client.powerOn();
             }
@@ -103,17 +104,16 @@ class TrinnovReceiverAccessory {
             .getCharacteristic(Characteristic.ActiveIdentifier)
             .onGet(() => this.client.state.currentProfileId ?? 0)
             .onSet((value) => {
+            this.platform.log.info(`[${cleanName}] HomeKit Input selected -> Profile ${value}`);
             this.client.setProfile(Number(value));
         });
         this.tvService
             .getCharacteristic(Characteristic.RemoteKey)
             .onSet((value) => {
+            this.platform.log.info(`[${cleanName}] HomeKit RemoteKey pressed -> ${value}`);
             this.handleRemoteKey(Number(value));
         });
-        // 3. Television Speaker Service (Apple TV Remote & iPhone hardware volume buttons)
-        // IMPORTANT: Optional characteristics (Active, VolumeControlType, VolumeSelector, Volume)
-        // MUST be added before calling accessory.addService() and MUST use RELATIVE_WITH_CURRENT
-        // so the iOS Control Center Apple TV Remote enables the hardware volume buttons!
+        // 3. Television Speaker Service (for iOS Control Center Remote when Trinnov is selected)
         const speakerName = sanitizeHomeKitName(`${cleanName} Speaker`, 'Altitude Speaker');
         let speakerSvc = this.accessory.getService(Service.TelevisionSpeaker);
         if (!speakerSvc) {
@@ -124,14 +124,14 @@ class TrinnovReceiverAccessory {
             speakerSvc.addOptionalCharacteristic(Characteristic.Volume);
             speakerSvc.setCharacteristic(Characteristic.Name, speakerName);
             speakerSvc.setCharacteristic(Characteristic.Active, Characteristic.Active.ACTIVE);
-            speakerSvc.setCharacteristic(Characteristic.VolumeControlType, Characteristic.VolumeControlType.RELATIVE_WITH_CURRENT);
+            speakerSvc.setCharacteristic(Characteristic.VolumeControlType, Characteristic.VolumeControlType.ABSOLUTE);
             this.accessory.addService(speakerSvc);
         }
         else {
             speakerSvc
                 .setCharacteristic(Characteristic.Name, speakerName)
                 .setCharacteristic(Characteristic.Active, Characteristic.Active.ACTIVE)
-                .setCharacteristic(Characteristic.VolumeControlType, Characteristic.VolumeControlType.RELATIVE_WITH_CURRENT);
+                .setCharacteristic(Characteristic.VolumeControlType, Characteristic.VolumeControlType.ABSOLUTE);
         }
         this.speakerService = speakerSvc;
         this.speakerService
@@ -144,11 +144,14 @@ class TrinnovReceiverAccessory {
             .getCharacteristic(Characteristic.Mute)
             .onGet(() => this.client.state.mute)
             .onSet((value) => {
+            this.platform.log.info(`[${cleanName}] HomeKit Speaker Mute -> ${Boolean(value)}`);
             this.client.setMute(Boolean(value));
         });
         this.speakerService
             .getCharacteristic(Characteristic.VolumeSelector)
             .onSet((value) => {
+            const dir = value === Characteristic.VolumeSelector.INCREMENT ? '+1.0 dB (UP)' : '-1.0 dB (DOWN)';
+            this.platform.log.info(`[${cleanName}] HomeKit Remote VolumeSelector -> ${dir}`);
             if (value === Characteristic.VolumeSelector.INCREMENT) {
                 this.client.adjustVolumeDb(1.0);
             }
@@ -160,12 +163,16 @@ class TrinnovReceiverAccessory {
             .getCharacteristic(Characteristic.Volume)
             .onGet(() => this.client.dbToPercentage(this.client.state.volume))
             .onSet((value) => {
+            this.platform.log.info(`[${cleanName}] HomeKit Speaker Volume -> ${value}%`);
             this.client.setVolumePercentage(Number(value));
         });
         this.tvService.addLinkedService(this.speakerService);
         // 4. Explicitly Named Input Sources (Profiles) in the Receiver's Input Picker
         this.setupInputSources();
-        // 5. In-Room Volume Slider & Named Preset Switches attached & linked to this Receiver
+        // 5. In-Room Volume Slider & Named Preset Switches on the Receiver Accessory
+        // IMPORTANT: Do NOT call tvService.addLinkedService() on Fan/Lightbulb/Switch services!
+        // In iOS Home, linking non-InputSource services to Service.Television causes Home.app
+        // to treat them as hidden internal TV sub-services and suppresses their tiles!
         this.setupVolumeSlider(cleanName);
         this.setupSwitches(cleanName);
         // 6. Subscribe to Live Client Events
@@ -234,7 +241,6 @@ class TrinnovReceiverAccessory {
             svc.updateCharacteristic(Characteristic.Name, safeName);
             svc.updateCharacteristic(Characteristic.ConfiguredName, safeName);
         }
-        this.tvService.addLinkedService(svc);
         return svc;
     }
     setupVolumeSlider(cleanDeviceName) {
@@ -285,15 +291,16 @@ class TrinnovReceiverAccessory {
                 .getCharacteristic(Characteristic.On)
                 .onGet(() => !this.client.state.mute && this.client.state.power)
                 .onSet((value) => {
+                this.platform.log.info(`[${cleanDeviceName}] Volume Slider Mute Toggle -> ${!Boolean(value)}`);
                 this.client.setMute(!Boolean(value));
             });
             fanSvc
                 .getCharacteristic(Characteristic.RotationSpeed)
                 .onGet(() => this.client.dbToPercentage(this.client.state.volume))
                 .onSet((value) => {
+                this.platform.log.info(`[${cleanDeviceName}] Volume Slider set -> ${value}%`);
                 this.client.setVolumePercentage(Number(value));
             });
-            this.tvService.addLinkedService(fanSvc);
             this.volumeSliderService = fanSvc;
         }
         else {
@@ -321,15 +328,16 @@ class TrinnovReceiverAccessory {
                 .getCharacteristic(Characteristic.On)
                 .onGet(() => !this.client.state.mute && this.client.state.power)
                 .onSet((value) => {
+                this.platform.log.info(`[${cleanDeviceName}] Volume Slider Mute Toggle -> ${!Boolean(value)}`);
                 this.client.setMute(!Boolean(value));
             });
             lightSvc
                 .getCharacteristic(Characteristic.Brightness)
                 .onGet(() => this.client.dbToPercentage(this.client.state.volume))
                 .onSet((value) => {
+                this.platform.log.info(`[${cleanDeviceName}] Volume Slider set -> ${value}%`);
                 this.client.setVolumePercentage(Number(value));
             });
-            this.tvService.addLinkedService(lightSvc);
             this.volumeSliderService = lightSvc;
         }
     }
@@ -366,6 +374,7 @@ class TrinnovReceiverAccessory {
                 .onGet(() => this.client.state.currentPresetId === preset.id)
                 .onSet((value) => {
                 if (Boolean(value)) {
+                    this.platform.log.info(`[${cleanDeviceName}] HomeKit Preset selected -> Preset ${preset.id} (${safePresetName})`);
                     this.client.setPreset(preset.id);
                     for (const [otherId, otherService] of this.presetSwitchServices.entries()) {
                         otherService.updateCharacteristic(Characteristic.On, otherId === preset.id);
