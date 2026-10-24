@@ -58,13 +58,13 @@
               "description": "Volume corresponding to 100% in HomeKit (default: 0.0 dB; protects speakers from accidental max volume)."
             },
             "enableVolumeSlider": {
-              "title": "Enable Companion Volume Slider",
+              "title": "Enable Volume Slider",
               "type": "boolean",
               "default": true,
-              "description": "Exposes an in-room slider in Apple Home for quick volume and mute adjustments without needing the iOS Remote widget."
+              "description": "Exposes an in-room slider in Apple Home for volume and mute adjustments."
             },
             "enableMuteSwitch": {
-              "title": "Enable Mute Switch",
+              "title": "Enable Dedicated Mute Switch",
               "type": "boolean",
               "default": false,
               "description": "Exposes a standalone Mute toggle switch in Apple Home."
@@ -75,10 +75,16 @@
               "default": false,
               "description": "Exposes a toggle switch to bypass or engage the Trinnov Acoustic Optimizer."
             },
+            "enableTvAccessory": {
+              "title": "Also Publish Unbridged TV/Receiver Accessory",
+              "type": "boolean",
+              "default": false,
+              "description": "Optional: Also publishes an unbridged Television accessory for the iOS Control Center Apple Remote widget (requires separate manual pairing in Apple Home)."
+            },
             "inputs": {
               "title": "Input Sources (Profiles)",
               "type": "array",
-              "description": "Trinnov Profile sources visible in Apple Home and iOS Remote app.",
+              "description": "Trinnov Profile sources exposed as input switches in Apple Home.",
               "items": {
                 "type": "object",
                 "required": ["id", "name"],
@@ -97,7 +103,7 @@
                     "title": "Source Type",
                     "type": "string",
                     "default": "HDMI",
-                    "enum": ["HDMI", "AUDIO_SYSTEM", "OTHER"]
+                    "enum": ["HDMI", "AUDIO_SYSTEM", "AIRPLAY", "OTHER"]
                   }
                 }
               }

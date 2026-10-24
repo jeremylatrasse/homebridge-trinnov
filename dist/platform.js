@@ -36,7 +36,24 @@ class TrinnovAltitudePlatform {
         this.accessories.push(accessory);
     }
     discoverDevices() {
-        const devices = this.config.devices || [];
+        const rawDevices = this.config.devices || [];
+        const devices = [...rawDevices];
+        // Also support top-level single-device configuration in case "host" was put directly on the platform block
+        if (devices.length === 0 && typeof this.config.host === 'string' && this.config.host.trim()) {
+            devices.push({
+                name: this.config.name || 'Trinnov Altitude32',
+                host: this.config.host.trim(),
+                port: this.config.port || 44100,
+                mac: this.config.mac,
+                minVolumeDb: this.config.minVolumeDb,
+                maxVolumeDb: this.config.maxVolumeDb,
+                enableVolumeSlider: this.config.enableVolumeSlider,
+                enableMuteSwitch: this.config.enableMuteSwitch,
+                enableBypassSwitch: this.config.enableBypassSwitch,
+                enableTvAccessory: this.config.enableTvAccessory,
+            });
+        }
+        const activeUUIDs = new Set();
         if (devices.length === 0) {
             this.log.warn('No Trinnov Altitude devices configured in Homebridge config.');
             return;
@@ -48,12 +65,11 @@ class TrinnovAltitudePlatform {
                 continue;
             }
             const deviceName = deviceConfig.name?.trim() || `Trinnov Altitude ${index + 1}`;
-            const deviceIdentifier = `trinnov:${deviceConfig.host}:${deviceConfig.port || 44100}`;
-            const uuid = this.api.hap.uuid.generate(deviceIdentifier);
-            this.log.info(`[${deviceName}] Setting up at ${deviceConfig.host}:${deviceConfig.port || 44100}`);
+            const port = deviceConfig.port || 44100;
+            this.log.info(`[${deviceName}] Setting up at ${deviceConfig.host}:${port}`);
             const client = new trinnovClient_1.TrinnovClient({
                 host: deviceConfig.host,
-                port: deviceConfig.port || 44100,
+                port,
                 mac: deviceConfig.mac,
                 clientName: deviceConfig.clientName || 'Homebridge',
                 minVolumeDb: deviceConfig.minVolumeDb,
@@ -61,23 +77,53 @@ class TrinnovAltitudePlatform {
             }, this.log);
             this.clients.push(client);
             client.start();
-            // In Apple HomeKit / HAP, Television / Receiver accessories MUST be published
-            // as external accessories so Apple Home enables the Remote widget and Input selector.
-            const accessory = new this.api.platformAccessory(deviceName, uuid, 34 /* Categories.AUDIO_RECEIVER */ || 31 /* Categories.TELEVISION */);
-            new platformAccessory_1.TrinnovAccessory(this, accessory, client, {
-                ...deviceConfig,
-                name: deviceName,
-            });
-            try {
-                this.api.publishExternalAccessories(settings_1.PLUGIN_NAME, [accessory]);
-                this.log.info(`[${deviceName}] Successfully published as External Audio Receiver accessory. ` +
-                    `If this is your first time adding it, open the Apple Home app, tap '+' > 'Add Accessory' > 'More options...' ` +
-                    `and select '${deviceName}'.`);
+            // 1. Register Standard Bridged Accessory (Appears automatically in your HomeKit Home!)
+            const bridgedIdentifier = `trinnov:bridged:${deviceConfig.host}:${port}`;
+            const bridgedUuid = this.api.hap.uuid.generate(bridgedIdentifier);
+            activeUUIDs.add(bridgedUuid);
+            const existingAccessory = this.accessories.find((acc) => acc.UUID === bridgedUuid);
+            if (existingAccessory) {
+                this.log.info(`[${deviceName}] Restoring existing bridged accessory from cache: "${existingAccessory.displayName}"`);
+                existingAccessory.displayName = deviceName;
+                new platformAccessory_1.TrinnovBridgedAccessory(this, existingAccessory, client, {
+                    ...deviceConfig,
+                    name: deviceName,
+                });
+                this.api.updatePlatformAccessories([existingAccessory]);
             }
-            catch (err) {
-                const error = err;
-                this.log.error(`[${deviceName}] Failed to publish external accessory: ${error.message}`);
+            else {
+                this.log.info(`[${deviceName}] Registering new bridged accessory in HomeKit: "${deviceName}"`);
+                const accessory = new this.api.platformAccessory(deviceName, bridgedUuid);
+                new platformAccessory_1.TrinnovBridgedAccessory(this, accessory, client, {
+                    ...deviceConfig,
+                    name: deviceName,
+                });
+                this.api.registerPlatformAccessories(settings_1.PLUGIN_NAME, settings_1.PLATFORM_NAME, [accessory]);
             }
+            // 2. Optional Unbridged Television / Receiver Accessory (for Control Center Remote widget)
+            if (deviceConfig.enableTvAccessory) {
+                const tvIdentifier = `trinnov:tv:${deviceConfig.host}:${port}`;
+                const tvUuid = this.api.hap.uuid.generate(tvIdentifier);
+                const tvAccessory = new this.api.platformAccessory(`${deviceName} Receiver`, tvUuid, 34 /* Categories.AUDIO_RECEIVER */ || 31 /* Categories.TELEVISION */);
+                new platformAccessory_1.TrinnovTelevisionAccessory(this, tvAccessory, client, {
+                    ...deviceConfig,
+                    name: `${deviceName} Receiver`,
+                });
+                try {
+                    this.api.publishExternalAccessories(settings_1.PLUGIN_NAME, [tvAccessory]);
+                    this.log.info(`[${deviceName}] Also published external TV/Receiver accessory.`);
+                }
+                catch (err) {
+                    const error = err;
+                    this.log.error(`[${deviceName}] Failed to publish external TV accessory: ${error.message}`);
+                }
+            }
+        }
+        // Clean up any stale cached accessories that were removed from config
+        const staleAccessories = this.accessories.filter((acc) => !activeUUIDs.has(acc.UUID));
+        if (staleAccessories.length > 0) {
+            this.log.info(`Removing ${staleAccessories.length} stale cached Trinnov accessory(ies)...`);
+            this.api.unregisterPlatformAccessories(settings_1.PLUGIN_NAME, settings_1.PLATFORM_NAME, staleAccessories);
         }
     }
 }
