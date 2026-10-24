@@ -3,7 +3,7 @@
   "pluginType": "platform",
   "singular": true,
   "headerDisplay": "Trinnov Altitude32 / Altitude16 Homebridge Integration",
-  "footerDisplay": "For support and documentation, visit https://github.com/homebridge-trinnov-altitude",
+  "footerDisplay": "For support and documentation, visit https://github.com/jeremylatrasse/homebridge-trinnov",
   "schema": {
     "type": "object",
     "properties": {
@@ -30,7 +30,7 @@
               "title": "IP Address / Hostname",
               "type": "string",
               "format": "hostname",
-              "placeholder": "192.168.1.100",
+              "placeholder": "172.16.1.66",
               "description": "Ethernet IP address of the Trinnov Altitude."
             },
             "port": {
@@ -57,11 +57,25 @@
               "default": 0.0,
               "description": "Volume corresponding to 100% in HomeKit (default: 0.0 dB; protects speakers from accidental max volume)."
             },
-            "enableVolumeSlider": {
-              "title": "Enable Volume Slider",
-              "type": "boolean",
-              "default": true,
-              "description": "Exposes an in-room slider in Apple Home for volume and mute adjustments."
+            "volumeAccessoryType": {
+              "title": "In-Room Volume Slider Type",
+              "type": "string",
+              "default": "fan",
+              "oneOf": [
+                {
+                  "title": "Fan Slider (0-100% slider, immune to 'Turn off the lights')",
+                  "enum": ["fan"]
+                },
+                {
+                  "title": "Light Dimmer Slider (0-100% brightness slider)",
+                  "enum": ["lightbulb"]
+                },
+                {
+                  "title": "None (Use Apple TV Remote / Receiver volume only)",
+                  "enum": ["none"]
+                }
+              ],
+              "description": "Choose how the in-room 0-100% volume slider is exposed in Apple Home. Note: Apple TV Remote volume control always works via the Receiver accessory."
             },
             "enableMuteSwitch": {
               "title": "Enable Dedicated Mute Switch",
@@ -76,15 +90,15 @@
               "description": "Exposes a toggle switch to bypass or engage the Trinnov Acoustic Optimizer."
             },
             "enableTvAccessory": {
-              "title": "Also Publish Unbridged TV/Receiver Accessory",
+              "title": "Publish Receiver Accessory for Apple TV Remote",
               "type": "boolean",
-              "default": false,
-              "description": "Optional: Also publishes an unbridged Television accessory for the iOS Control Center Apple Remote widget (requires separate manual pairing in Apple Home)."
+              "default": true,
+              "description": "Publishes the Audio Receiver accessory so the iOS Control Center Apple TV Remote widget and iPhone hardware volume buttons control the Trinnov volume."
             },
             "inputs": {
-              "title": "Input Sources (Profiles)",
+              "title": "Named Input Sources (Profiles)",
               "type": "array",
-              "description": "Trinnov Profile sources exposed as input switches in Apple Home.",
+              "description": "Only profiles with a name entered here will be exposed to HomeKit. Unnamed profiles are ignored.",
               "items": {
                 "type": "object",
                 "required": ["id", "name"],
@@ -109,9 +123,9 @@
               }
             },
             "presets": {
-              "title": "Presets (Optional Switches)",
+              "title": "Named Presets",
               "type": "array",
-              "description": "Expose specific Trinnov room correction presets as individual switches in Apple Home.",
+              "description": "Only presets with a name entered here will be exposed to HomeKit. Unnamed presets are ignored.",
               "items": {
                 "type": "object",
                 "required": ["id", "name"],

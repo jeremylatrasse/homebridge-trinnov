@@ -15,6 +15,8 @@ import {
   TrinnovBridgedAccessory,
   TrinnovTelevisionAccessory,
   TrinnovDeviceConfig,
+  InputSourceConfig,
+  PresetConfig,
 } from './platformAccessory';
 
 export class TrinnovAltitudePlatform implements DynamicPlatformPlugin {
@@ -69,9 +71,12 @@ export class TrinnovAltitudePlatform implements DynamicPlatformPlugin {
         minVolumeDb: this.config.minVolumeDb as number | undefined,
         maxVolumeDb: this.config.maxVolumeDb as number | undefined,
         enableVolumeSlider: this.config.enableVolumeSlider as boolean | undefined,
+        volumeAccessoryType: this.config.volumeAccessoryType as 'fan' | 'lightbulb' | 'none' | undefined,
         enableMuteSwitch: this.config.enableMuteSwitch as boolean | undefined,
         enableBypassSwitch: this.config.enableBypassSwitch as boolean | undefined,
         enableTvAccessory: this.config.enableTvAccessory as boolean | undefined,
+        inputs: this.config.inputs as InputSourceConfig[] | undefined,
+        presets: this.config.presets as PresetConfig[] | undefined,
       });
     }
 
@@ -134,8 +139,8 @@ export class TrinnovAltitudePlatform implements DynamicPlatformPlugin {
         this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       }
 
-      // 2. Optional Unbridged Television / Receiver Accessory (for Control Center Remote widget)
-      if (deviceConfig.enableTvAccessory) {
+      // 2. Unbridged Television / Receiver Accessory (Enabled by default so Apple TV Remote & hardware volume buttons work!)
+      if (deviceConfig.enableTvAccessory !== false) {
         const tvIdentifier = `trinnov:tv:${deviceConfig.host}:${port}`;
         const tvUuid = this.api.hap.uuid.generate(tvIdentifier);
         const tvAccessory = new this.api.platformAccessory(
@@ -151,7 +156,9 @@ export class TrinnovAltitudePlatform implements DynamicPlatformPlugin {
 
         try {
           this.api.publishExternalAccessories(PLUGIN_NAME, [tvAccessory]);
-          this.log.info(`[${deviceName}] Also published external TV/Receiver accessory.`);
+          this.log.info(
+            `[${deviceName}] Published Receiver accessory for Apple TV Remote volume & input control.`,
+          );
         } catch (err: unknown) {
           const error = err as Error;
           this.log.error(`[${deviceName}] Failed to publish external TV accessory: ${error.message}`);

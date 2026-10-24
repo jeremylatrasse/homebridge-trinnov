@@ -1,5 +1,6 @@
 import assert from 'node:assert';
 import { TrinnovClient } from './dist/trinnovClient.js';
+import { sanitizeHomeKitName, isExplicitlyNamed } from './dist/platformAccessory.js';
 
 const mockLogger = {
   info: () => {},
@@ -8,11 +9,11 @@ const mockLogger = {
   debug: () => {},
 };
 
-console.log('Testing TrinnovClient math & protocol logic...');
+console.log('Testing TrinnovClient math, protocol & HomeKit sanitization logic...');
 
 const client = new TrinnovClient(
   {
-    host: '192.168.1.100',
+    host: '172.16.1.66',
     port: 44100,
     mac: '00:1E:06:12:34:56',
     minVolumeDb: -90.0,
@@ -38,7 +39,6 @@ client.on('volumeChange', (db, percent) => {
   percentEmitted = percent;
 });
 
-// Simulate incoming TCP data
 client['handleIncomingData']('VOLUME -32.5\r\n');
 assert.strictEqual(volEmitted, -32.5, 'Volume should parse -32.5 dB');
 assert.strictEqual(percentEmitted, 64, 'Volume -32.5 should map to 64%');
@@ -61,5 +61,19 @@ assert.strictEqual(client.state.profiles.get(2), 'Kaleidescape');
 
 client['handleIncomingData']('PROFILE 2\r\n');
 assert.strictEqual(profileIdEmitted, 2);
+
+// Test 3: HomeKit Name Sanitization (fixes HAP-NodeJS WARNING for 'ANALOG BAL IN 1+2 (MIC 4 XLR)')
+const sanitized = sanitizeHomeKitName('ANALOG BAL IN 1+2 (MIC 4 XLR)');
+assert.strictEqual(sanitized, 'ANALOG BAL IN 1 and 2 MIC 4 XLR');
+assert.ok(/^[a-zA-Z0-9][a-zA-Z0-9 '-]*[a-zA-Z0-9]$/.test(sanitized), 'Sanitized name must pass HAP rules');
+
+// Test 4: Unnamed profile / preset filtering
+assert.strictEqual(isExplicitlyNamed(''), false);
+assert.strictEqual(isExplicitlyNamed('   '), false);
+assert.strictEqual(isExplicitlyNamed('Switch 1'), false);
+assert.strictEqual(isExplicitlyNamed('Preset 12'), false);
+assert.strictEqual(isExplicitlyNamed('Profile 3'), false);
+assert.strictEqual(isExplicitlyNamed('Apple TV 4K'), true);
+assert.strictEqual(isExplicitlyNamed('Kaleidescape'), true);
 
 console.log('✅ All tests passed successfully!');

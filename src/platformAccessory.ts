@@ -23,6 +23,7 @@ export interface TrinnovDeviceConfig {
   minVolumeDb?: number;
   maxVolumeDb?: number;
   enableVolumeSlider?: boolean;
+  volumeAccessoryType?: 'fan' | 'lightbulb' | 'none';
   enableMuteSwitch?: boolean;
   enableBypassSwitch?: boolean;
   enableTvAccessory?: boolean;
@@ -31,15 +32,54 @@ export interface TrinnovDeviceConfig {
 }
 
 /**
+ * Sanitizes any string into a valid Apple HomeKit HAP Name:
+ * - Must start and end with a letter or number
+ * - Only letters, numbers, spaces, apostrophes, and hyphens allowed
+ * - Removes parentheses, pluses, slashes, etc. that trigger HAP-NodeJS warnings
+ */
+export function sanitizeHomeKitName(rawName: string, fallback = 'Trinnov Control'): string {
+  const cleaned = rawName
+    .replace(/\+/g, ' and ')
+    .replace(/[()[\]{}/\\]/g, ' ')
+    .replace(/[^a-zA-Z0-9 '-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[^a-zA-Z0-9]+/, '')
+    .replace(/[^a-zA-Z0-9]+$/, '');
+
+  return cleaned.length > 0 ? cleaned.slice(0, 64) : fallback;
+}
+
+/**
+ * Checks whether a profile or preset entry has a valid user-provided name
+ * and is not an unnamed placeholder (e.g. "", "Switch 1", "Preset 2", "Profile 3").
+ */
+export function isExplicitlyNamed(rawName?: string): boolean {
+  if (!rawName) {
+    return false;
+  }
+  const trimmed = rawName.trim();
+  if (!trimmed) {
+    return false;
+  }
+  // Ignore generic unnamed placeholders
+  if (/^(switch|preset|profile|input|config|unnamed|empty|none)\s*#?\d*$/i.test(trimmed)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Standard Bridged HomeKit Accessory:
  * Automatically appears in your existing HomeKit Home via your Homebridge bridge
  * (or child bridge) with ZERO extra pairing required!
  *
- * Exposes:
+ * Exposes ONLY:
  * - Power Switch (Wake-on-LAN & TCP Standby)
- * - Volume Control Slider (0-100% mapped to dB range, plus Mute toggle)
- * - Input Source Switches (radio-button style switches for each Trinnov Profile)
- * - Optional Mute, Optimizer Bypass, and Preset switches
+ * - Volume Slider (Fan RotationSpeed 0-100% by default so "turn off lights" never mutes your theater,
+ *   or Lightbulb Brightness if configured)
+ * - Explicitly named Input Source switches from your config (unnamed profiles are never propagated)
+ * - Explicitly named Preset switches from your config (unnamed presets are never propagated)
  */
 export class TrinnovBridgedAccessory {
   private powerService: Service;
@@ -56,11 +96,12 @@ export class TrinnovBridgedAccessory {
     private readonly deviceConfig: TrinnovDeviceConfig,
   ) {
     const { Service, Characteristic } = this.platform;
+    const cleanDeviceName = sanitizeHomeKitName(this.deviceConfig.name, 'Trinnov Altitude32');
 
     // 1. Accessory Information
     const infoService = this.accessory.getService(Service.AccessoryInformation)!;
     infoService
-      .setCharacteristic(Characteristic.Name, this.deviceConfig.name)
+      .setCharacteristic(Characteristic.Name, cleanDeviceName)
       .setCharacteristic(Characteristic.Manufacturer, 'Trinnov Audio')
       .setCharacteristic(Characteristic.Model, 'Altitude32')
       .setCharacteristic(Characteristic.SerialNumber, `TRINNOV-${this.deviceConfig.host}`)
@@ -68,11 +109,8 @@ export class TrinnovBridgedAccessory {
 
     // 2. Main Power Switch
     const powerSubtype = 'power-switch';
-    this.powerService = this.accessory.getServiceById(Service.Switch, powerSubtype) ||
-      this.accessory.addService(Service.Switch, `${this.deviceConfig.name} Power`, powerSubtype);
-
-    this.powerService.setCharacteristic(Characteristic.Name, `${this.deviceConfig.name} Power`);
-    this.powerService.setCharacteristic(Characteristic.ConfiguredName, `${this.deviceConfig.name} Power`);
+    const powerName = sanitizeHomeKitName(`${cleanDeviceName} Power`, 'Altitude Power');
+    this.powerService = this.createOrUpdateSwitch(powerSubtype, powerName);
 
     this.powerService
       .getCharacteristic(Characteristic.On)
@@ -85,82 +123,176 @@ export class TrinnovBridgedAccessory {
         }
       });
 
-    // 3. Volume Slider (Enabled by default so you have immediate volume + mute control in the Home app)
-    this.setupVolumeSlider();
+    // 3. Volume Slider (Fan 0-100% slider by default, or Lightbulb if requested)
+    this.setupVolumeSlider(cleanDeviceName);
 
-    // 4. Input Selection Switches (Trinnov Profiles)
+    // 4. Explicitly Configured Input Selection Switches (Trinnov Profiles)
     this.setupInputSwitches();
 
-    // 5. Optional Mute, Bypass, and Preset Switches
-    this.setupExtraSwitches();
+    // 5. Optional Mute, Bypass, and Explicitly Named Preset Switches
+    this.setupExtraSwitches(cleanDeviceName);
 
     // 6. Subscribe to Live Client Events
     this.subscribeClientEvents();
   }
 
-  private setupVolumeSlider(): void {
+  /**
+   * Helper that creates or updates a Switch service with `ConfiguredName` and `Name`
+   * added BEFORE the service is registered on the accessory so iOS 16/17/18 Home app
+   * shows the exact name instead of "Switch 1..32".
+   */
+  private createOrUpdateSwitch(subtype: string, rawName: string): Service {
     const { Service, Characteristic } = this.platform;
-    const subtype = 'companion-volume';
-    const enabled = this.deviceConfig.enableVolumeSlider !== false; // default true
+    const safeName = sanitizeHomeKitName(rawName, 'Trinnov Switch');
 
-    if (enabled) {
-      const volName = `${this.deviceConfig.name} Volume`;
-      this.volumeService = this.accessory.getServiceById(Service.Lightbulb, subtype) ||
-        this.accessory.addService(Service.Lightbulb, volName, subtype);
+    let svc = this.accessory.getServiceById(Service.Switch, subtype);
+    if (!svc) {
+      svc = new Service.Switch(safeName, subtype);
+      svc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+      svc.setCharacteristic(Characteristic.Name, safeName);
+      svc.setCharacteristic(Characteristic.ConfiguredName, safeName);
+      this.accessory.addService(svc);
+    } else {
+      if (!svc.testCharacteristic(Characteristic.ConfiguredName)) {
+        svc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+      }
+      svc.displayName = safeName;
+      svc.setCharacteristic(Characteristic.Name, safeName);
+      svc.setCharacteristic(Characteristic.ConfiguredName, safeName);
+      svc.updateCharacteristic(Characteristic.Name, safeName);
+      svc.updateCharacteristic(Characteristic.ConfiguredName, safeName);
+    }
 
-      this.volumeService.setCharacteristic(Characteristic.Name, volName);
-      this.volumeService.setCharacteristic(Characteristic.ConfiguredName, volName);
+    return svc;
+  }
 
-      this.volumeService
+  private setupVolumeSlider(cleanDeviceName: string): void {
+    const { Service, Characteristic } = this.platform;
+    const fanSubtype = 'companion-volume-fan';
+    const lightSubtype = 'companion-volume';
+
+    const enabled = this.deviceConfig.enableVolumeSlider !== false &&
+      this.deviceConfig.volumeAccessoryType !== 'none';
+    const sliderType = this.deviceConfig.volumeAccessoryType || 'fan';
+    const volName = sanitizeHomeKitName(`${cleanDeviceName} Volume`, 'Altitude Volume');
+
+    // Remove unused slider service type if user switched types or disabled it
+    if (!enabled || sliderType !== 'fan') {
+      const existingFan = this.accessory.getServiceById(Service.Fan, fanSubtype);
+      if (existingFan) {
+        this.accessory.removeService(existingFan);
+      }
+    }
+    if (!enabled || sliderType !== 'lightbulb') {
+      const existingLight = this.accessory.getServiceById(Service.Lightbulb, lightSubtype);
+      if (existingLight) {
+        this.accessory.removeService(existingLight);
+      }
+    }
+
+    if (!enabled) {
+      return;
+    }
+
+    if (sliderType === 'fan') {
+      let fanSvc = this.accessory.getServiceById(Service.Fan, fanSubtype);
+      if (!fanSvc) {
+        fanSvc = new Service.Fan(volName, fanSubtype);
+        fanSvc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+        fanSvc.setCharacteristic(Characteristic.Name, volName);
+        fanSvc.setCharacteristic(Characteristic.ConfiguredName, volName);
+        this.accessory.addService(fanSvc);
+      } else {
+        if (!fanSvc.testCharacteristic(Characteristic.ConfiguredName)) {
+          fanSvc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+        }
+        fanSvc.displayName = volName;
+        fanSvc.setCharacteristic(Characteristic.Name, volName);
+        fanSvc.setCharacteristic(Characteristic.ConfiguredName, volName);
+      }
+
+      fanSvc
         .getCharacteristic(Characteristic.On)
         .onGet(() => !this.client.state.mute && this.client.state.power)
         .onSet((value: CharacteristicValue) => {
           this.client.setMute(!Boolean(value));
         });
 
-      this.volumeService
+      fanSvc
+        .getCharacteristic(Characteristic.RotationSpeed)
+        .onGet(() => this.client.dbToPercentage(this.client.state.volume))
+        .onSet((value: CharacteristicValue) => {
+          this.client.setVolumePercentage(Number(value));
+        });
+
+      this.volumeService = fanSvc;
+    } else {
+      let lightSvc = this.accessory.getServiceById(Service.Lightbulb, lightSubtype);
+      if (!lightSvc) {
+        lightSvc = new Service.Lightbulb(volName, lightSubtype);
+        lightSvc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+        lightSvc.setCharacteristic(Characteristic.Name, volName);
+        lightSvc.setCharacteristic(Characteristic.ConfiguredName, volName);
+        this.accessory.addService(lightSvc);
+      } else {
+        if (!lightSvc.testCharacteristic(Characteristic.ConfiguredName)) {
+          lightSvc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+        }
+        lightSvc.displayName = volName;
+        lightSvc.setCharacteristic(Characteristic.Name, volName);
+        lightSvc.setCharacteristic(Characteristic.ConfiguredName, volName);
+      }
+
+      lightSvc
+        .getCharacteristic(Characteristic.On)
+        .onGet(() => !this.client.state.mute && this.client.state.power)
+        .onSet((value: CharacteristicValue) => {
+          this.client.setMute(!Boolean(value));
+        });
+
+      lightSvc
         .getCharacteristic(Characteristic.Brightness)
         .onGet(() => this.client.dbToPercentage(this.client.state.volume))
         .onSet((value: CharacteristicValue) => {
           this.client.setVolumePercentage(Number(value));
         });
-    } else {
-      const existing = this.accessory.getServiceById(Service.Lightbulb, subtype);
-      if (existing) {
-        this.accessory.removeService(existing);
-      }
+
+      this.volumeService = lightSvc;
     }
   }
 
   private setupInputSwitches(): void {
-    const configuredInputs = this.deviceConfig.inputs && this.deviceConfig.inputs.length > 0
-      ? this.deviceConfig.inputs
-      : [
-          { id: 0, name: 'Apple TV' },
-          { id: 1, name: 'Kaleidescape' },
-          { id: 2, name: 'Blu-ray / Disc' },
-          { id: 3, name: 'Turntable / Phono' },
-          { id: 4, name: 'Roon / Streamer' },
-          { id: 5, name: 'Game Console' },
-        ];
+    const { Service } = this.platform;
+    const configuredInputs = (this.deviceConfig.inputs || []).filter((input) =>
+      isExplicitlyNamed(input.name),
+    );
+
+    const validSubtypes = new Set<string>();
 
     for (const input of configuredInputs) {
+      const subtype = `input-switch-${input.id}`;
+      validSubtypes.add(subtype);
       this.registerInputSwitch(input.id, input.name);
+    }
+
+    // Remove any previously cached auto-discovered or unnamed input switches
+    for (const svc of [...this.accessory.services]) {
+      if (
+        svc.UUID === Service.Switch.UUID &&
+        svc.subtype?.startsWith('input-switch-') &&
+        !validSubtypes.has(svc.subtype)
+      ) {
+        this.accessory.removeService(svc);
+      }
     }
   }
 
-  private registerInputSwitch(id: number, name: string): void {
-    const { Service, Characteristic } = this.platform;
+  private registerInputSwitch(id: number, rawName: string): void {
+    const { Characteristic } = this.platform;
     const subtype = `input-switch-${id}`;
-    const label = `Input: ${name}`;
+    const safeName = sanitizeHomeKitName(rawName, `Input ${id}`);
 
-    let switchService = this.accessory.getServiceById(Service.Switch, subtype);
-    if (!switchService) {
-      switchService = this.accessory.addService(Service.Switch, label, subtype);
-    }
-
-    switchService.setCharacteristic(Characteristic.Name, label);
-    switchService.setCharacteristic(Characteristic.ConfiguredName, label);
+    const switchService = this.createOrUpdateSwitch(subtype, safeName);
 
     switchService
       .getCharacteristic(Characteristic.On)
@@ -168,15 +300,13 @@ export class TrinnovBridgedAccessory {
       .onSet((value: CharacteristicValue) => {
         if (Boolean(value)) {
           this.client.setProfile(id);
-          // Radio-button behavior: turn on selected input and turn off others immediately in UI
           for (const [otherId, otherService] of this.inputSwitchServices.entries()) {
             otherService.updateCharacteristic(Characteristic.On, otherId === id);
           }
         } else {
-          // Keep current profile switch ON if user taps the already-active input
           if (this.client.state.currentProfileId === id) {
             setTimeout(() => {
-              switchService?.updateCharacteristic(Characteristic.On, true);
+              switchService.updateCharacteristic(Characteristic.On, true);
             }, 150);
           }
         }
@@ -185,18 +315,14 @@ export class TrinnovBridgedAccessory {
     this.inputSwitchServices.set(id, switchService);
   }
 
-  private setupExtraSwitches(): void {
+  private setupExtraSwitches(cleanDeviceName: string): void {
     const { Service, Characteristic } = this.platform;
 
     // Mute switch
     const muteSubtype = 'mute-switch';
     if (this.deviceConfig.enableMuteSwitch) {
-      const muteName = `${this.deviceConfig.name} Mute`;
-      this.muteSwitchService = this.accessory.getServiceById(Service.Switch, muteSubtype) ||
-        this.accessory.addService(Service.Switch, muteName, muteSubtype);
-
-      this.muteSwitchService.setCharacteristic(Characteristic.Name, muteName);
-      this.muteSwitchService.setCharacteristic(Characteristic.ConfiguredName, muteName);
+      const muteName = sanitizeHomeKitName(`${cleanDeviceName} Mute`, 'Altitude Mute');
+      this.muteSwitchService = this.createOrUpdateSwitch(muteSubtype, muteName);
 
       this.muteSwitchService
         .getCharacteristic(Characteristic.On)
@@ -214,12 +340,8 @@ export class TrinnovBridgedAccessory {
     // Optimizer Bypass switch
     const bypassSubtype = 'bypass-switch';
     if (this.deviceConfig.enableBypassSwitch) {
-      const bypassName = `${this.deviceConfig.name} Bypass`;
-      this.bypassSwitchService = this.accessory.getServiceById(Service.Switch, bypassSubtype) ||
-        this.accessory.addService(Service.Switch, bypassName, bypassSubtype);
-
-      this.bypassSwitchService.setCharacteristic(Characteristic.Name, bypassName);
-      this.bypassSwitchService.setCharacteristic(Characteristic.ConfiguredName, bypassName);
+      const bypassName = sanitizeHomeKitName(`${cleanDeviceName} Bypass`, 'Altitude Bypass');
+      this.bypassSwitchService = this.createOrUpdateSwitch(bypassSubtype, bypassName);
 
       this.bypassSwitchService
         .getCharacteristic(Characteristic.On)
@@ -234,26 +356,47 @@ export class TrinnovBridgedAccessory {
       }
     }
 
-    // Presets
-    if (this.deviceConfig.presets && this.deviceConfig.presets.length > 0) {
-      for (const preset of this.deviceConfig.presets) {
-        const pSubtype = `preset-${preset.id}`;
-        const pService = this.accessory.getServiceById(Service.Switch, pSubtype) ||
-          this.accessory.addService(Service.Switch, preset.name, pSubtype);
+    // Presets (Only explicitly named presets!)
+    const configuredPresets = (this.deviceConfig.presets || []).filter((preset) =>
+      isExplicitlyNamed(preset.name),
+    );
+    const validPresetSubtypes = new Set<string>();
 
-        pService.setCharacteristic(Characteristic.Name, preset.name);
-        pService.setCharacteristic(Characteristic.ConfiguredName, preset.name);
+    for (const preset of configuredPresets) {
+      const pSubtype = `preset-${preset.id}`;
+      validPresetSubtypes.add(pSubtype);
+      const safePresetName = sanitizeHomeKitName(preset.name, `Preset ${preset.id}`);
+      const pService = this.createOrUpdateSwitch(pSubtype, safePresetName);
 
-        pService
-          .getCharacteristic(Characteristic.On)
-          .onGet(() => this.client.state.currentPresetId === preset.id)
-          .onSet((value: CharacteristicValue) => {
-            if (Boolean(value)) {
-              this.client.setPreset(preset.id);
+      pService
+        .getCharacteristic(Characteristic.On)
+        .onGet(() => this.client.state.currentPresetId === preset.id)
+        .onSet((value: CharacteristicValue) => {
+          if (Boolean(value)) {
+            this.client.setPreset(preset.id);
+            for (const [otherId, otherService] of this.presetSwitchServices.entries()) {
+              otherService.updateCharacteristic(Characteristic.On, otherId === preset.id);
             }
-          });
+          } else {
+            if (this.client.state.currentPresetId === preset.id) {
+              setTimeout(() => {
+                pService.updateCharacteristic(Characteristic.On, true);
+              }, 150);
+            }
+          }
+        });
 
-        this.presetSwitchServices.set(preset.id, pService);
+      this.presetSwitchServices.set(preset.id, pService);
+    }
+
+    // Remove any stale or unnamed preset switches from cache
+    for (const svc of [...this.accessory.services]) {
+      if (
+        svc.UUID === Service.Switch.UUID &&
+        svc.subtype?.startsWith('preset-') &&
+        !validPresetSubtypes.has(svc.subtype)
+      ) {
+        this.accessory.removeService(svc);
       }
     }
   }
@@ -279,7 +422,11 @@ export class TrinnovBridgedAccessory {
 
     this.client.on('volumeChange', (_db: number, percent: number) => {
       if (this.volumeService) {
-        this.volumeService.updateCharacteristic(Characteristic.Brightness, percent);
+        if (this.volumeService.testCharacteristic(Characteristic.RotationSpeed)) {
+          this.volumeService.updateCharacteristic(Characteristic.RotationSpeed, percent);
+        } else if (this.volumeService.testCharacteristic(Characteristic.Brightness)) {
+          this.volumeService.updateCharacteristic(Characteristic.Brightness, percent);
+        }
       }
     });
 
@@ -298,12 +445,6 @@ export class TrinnovBridgedAccessory {
       }
     });
 
-    this.client.on('profileDiscovered', (id: number, name: string) => {
-      if (!this.inputSwitchServices.has(id)) {
-        this.registerInputSwitch(id, name);
-      }
-    });
-
     this.client.on('presetChange', (presetId: number) => {
       for (const [id, service] of this.presetSwitchServices.entries()) {
         service.updateCharacteristic(Characteristic.On, id === presetId);
@@ -319,9 +460,9 @@ export class TrinnovBridgedAccessory {
 }
 
 /**
- * Optional Standalone Television / Receiver Accessory:
- * Published as an unbridged external accessory for users who also want the
- * iOS Control Center Apple Remote widget and native TV input picker.
+ * Standalone Television / Receiver Accessory (`Trinnov Altitude32 Receiver`):
+ * Exposes `Service.Television` + `Service.TelevisionSpeaker` + explicitly named `Service.InputSource`s.
+ * Allows the iOS Apple TV Remote widget (and hardware volume buttons) to control the Altitude volume!
  */
 export class TrinnovTelevisionAccessory {
   private tvService: Service;
@@ -335,20 +476,22 @@ export class TrinnovTelevisionAccessory {
     private readonly deviceConfig: TrinnovDeviceConfig,
   ) {
     const { Service, Characteristic } = this.platform;
+    const cleanTvName = sanitizeHomeKitName(this.deviceConfig.name, 'Trinnov Altitude32');
 
     const infoService = this.accessory.getService(Service.AccessoryInformation)!;
     infoService
+      .setCharacteristic(Characteristic.Name, cleanTvName)
       .setCharacteristic(Characteristic.Manufacturer, 'Trinnov Audio')
       .setCharacteristic(Characteristic.Model, 'Altitude32')
       .setCharacteristic(Characteristic.SerialNumber, `TRINNOV-TV-${this.deviceConfig.host}`)
       .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);
 
     this.tvService = this.accessory.getService(Service.Television) ||
-      this.accessory.addService(Service.Television, this.deviceConfig.name, 'altitude-receiver');
+      this.accessory.addService(Service.Television, cleanTvName, 'altitude-receiver');
 
     this.tvService
-      .setCharacteristic(Characteristic.Name, this.deviceConfig.name)
-      .setCharacteristic(Characteristic.ConfiguredName, this.deviceConfig.name)
+      .setCharacteristic(Characteristic.Name, cleanTvName)
+      .setCharacteristic(Characteristic.ConfiguredName, cleanTvName)
       .setCharacteristic(
         Characteristic.SleepDiscoveryMode,
         Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE,
@@ -383,10 +526,13 @@ export class TrinnovTelevisionAccessory {
         this.handleRemoteKey(Number(value));
       });
 
+    const speakerName = sanitizeHomeKitName(`${cleanTvName} Speaker`, 'Altitude Speaker');
     this.speakerService = this.accessory.getService(Service.TelevisionSpeaker) ||
-      this.accessory.addService(Service.TelevisionSpeaker, `${this.deviceConfig.name} Speaker`, 'altitude-speaker');
+      this.accessory.addService(Service.TelevisionSpeaker, speakerName, 'altitude-speaker');
 
     this.speakerService
+      .setCharacteristic(Characteristic.Name, speakerName)
+      .setCharacteristic(Characteristic.Active, Characteristic.Active.ACTIVE)
       .setCharacteristic(
         Characteristic.VolumeControlType,
         Characteristic.VolumeControlType.ABSOLUTE,
@@ -409,45 +555,45 @@ export class TrinnovTelevisionAccessory {
         }
       });
 
-    if (this.speakerService.testCharacteristic(Characteristic.Volume)) {
-      this.speakerService
-        .getCharacteristic(Characteristic.Volume)
-        .onGet(() => this.client.dbToPercentage(this.client.state.volume))
-        .onSet((value: CharacteristicValue) => {
-          this.client.setVolumePercentage(Number(value));
-        });
-    }
+    this.speakerService
+      .getCharacteristic(Characteristic.Volume)
+      .onGet(() => this.client.dbToPercentage(this.client.state.volume))
+      .onSet((value: CharacteristicValue) => {
+        this.client.setVolumePercentage(Number(value));
+      });
 
     this.tvService.addLinkedService(this.speakerService);
 
+    // Only register explicitly named inputs from config (never auto-propagate all 32 Trinnov profiles)
     this.setupInputSources();
     this.subscribeClientEvents();
   }
 
   private setupInputSources(): void {
-    const configuredInputs = this.deviceConfig.inputs && this.deviceConfig.inputs.length > 0
-      ? this.deviceConfig.inputs
-      : [
-          { id: 0, name: 'Apple TV', type: 'HDMI' },
-          { id: 1, name: 'Kaleidescape', type: 'HDMI' },
-          { id: 2, name: 'Blu-ray / Disc', type: 'HDMI' },
-          { id: 3, name: 'Turntable / Phono', type: 'OTHER' },
-          { id: 4, name: 'Roon / Streamer', type: 'AIRPLAY' },
-          { id: 5, name: 'Game Console', type: 'HDMI' },
-        ];
+    const configuredInputs = (this.deviceConfig.inputs || []).filter((input) =>
+      isExplicitlyNamed(input.name),
+    );
 
     for (const input of configuredInputs) {
       this.registerInputSource(input.id, input.name, input.type);
     }
   }
 
-  private registerInputSource(id: number, name: string, type?: string): void {
+  private registerInputSource(id: number, rawName: string, type?: string): void {
     const { Service, Characteristic } = this.platform;
     const subtype = `input-${id}`;
+    const safeName = sanitizeHomeKitName(rawName, `Input ${id}`);
 
     let inputService = this.accessory.getServiceById(Service.InputSource, subtype);
     if (!inputService) {
-      inputService = this.accessory.addService(Service.InputSource, name, subtype);
+      inputService = new Service.InputSource(safeName, subtype);
+      inputService.setCharacteristic(Characteristic.Name, safeName);
+      inputService.setCharacteristic(Characteristic.ConfiguredName, safeName);
+      this.accessory.addService(inputService);
+    } else {
+      inputService.displayName = safeName;
+      inputService.setCharacteristic(Characteristic.Name, safeName);
+      inputService.setCharacteristic(Characteristic.ConfiguredName, safeName);
     }
 
     let hapInputType = Characteristic.InputSourceType.HDMI;
@@ -459,7 +605,6 @@ export class TrinnovTelevisionAccessory {
 
     inputService
       .setCharacteristic(Characteristic.Identifier, id)
-      .setCharacteristic(Characteristic.ConfiguredName, name)
       .setCharacteristic(
         Characteristic.IsConfigured,
         Characteristic.IsConfigured.CONFIGURED,
@@ -514,9 +659,7 @@ export class TrinnovTelevisionAccessory {
     });
 
     this.client.on('volumeChange', (_db: number, percent: number) => {
-      if (this.speakerService.testCharacteristic(Characteristic.Volume)) {
-        this.speakerService.updateCharacteristic(Characteristic.Volume, percent);
-      }
+      this.speakerService.updateCharacteristic(Characteristic.Volume, percent);
     });
 
     this.client.on('muteChange', (muted: boolean) => {
@@ -524,12 +667,8 @@ export class TrinnovTelevisionAccessory {
     });
 
     this.client.on('profileChange', (profileId: number) => {
-      this.tvService.updateCharacteristic(Characteristic.ActiveIdentifier, profileId);
-    });
-
-    this.client.on('profileDiscovered', (id: number, name: string) => {
-      if (!this.inputServices.has(id)) {
-        this.registerInputSource(id, name, 'HDMI');
+      if (this.inputServices.has(profileId)) {
+        this.tvService.updateCharacteristic(Characteristic.ActiveIdentifier, profileId);
       }
     });
   }

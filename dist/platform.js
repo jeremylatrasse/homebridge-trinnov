@@ -48,9 +48,12 @@ class TrinnovAltitudePlatform {
                 minVolumeDb: this.config.minVolumeDb,
                 maxVolumeDb: this.config.maxVolumeDb,
                 enableVolumeSlider: this.config.enableVolumeSlider,
+                volumeAccessoryType: this.config.volumeAccessoryType,
                 enableMuteSwitch: this.config.enableMuteSwitch,
                 enableBypassSwitch: this.config.enableBypassSwitch,
                 enableTvAccessory: this.config.enableTvAccessory,
+                inputs: this.config.inputs,
+                presets: this.config.presets,
             });
         }
         const activeUUIDs = new Set();
@@ -100,8 +103,8 @@ class TrinnovAltitudePlatform {
                 });
                 this.api.registerPlatformAccessories(settings_1.PLUGIN_NAME, settings_1.PLATFORM_NAME, [accessory]);
             }
-            // 2. Optional Unbridged Television / Receiver Accessory (for Control Center Remote widget)
-            if (deviceConfig.enableTvAccessory) {
+            // 2. Unbridged Television / Receiver Accessory (Enabled by default so Apple TV Remote & hardware volume buttons work!)
+            if (deviceConfig.enableTvAccessory !== false) {
                 const tvIdentifier = `trinnov:tv:${deviceConfig.host}:${port}`;
                 const tvUuid = this.api.hap.uuid.generate(tvIdentifier);
                 const tvAccessory = new this.api.platformAccessory(`${deviceName} Receiver`, tvUuid, 34 /* Categories.AUDIO_RECEIVER */ || 31 /* Categories.TELEVISION */);
@@ -111,7 +114,7 @@ class TrinnovAltitudePlatform {
                 });
                 try {
                     this.api.publishExternalAccessories(settings_1.PLUGIN_NAME, [tvAccessory]);
-                    this.log.info(`[${deviceName}] Also published external TV/Receiver accessory.`);
+                    this.log.info(`[${deviceName}] Published Receiver accessory for Apple TV Remote volume & input control.`);
                 }
                 catch (err) {
                     const error = err;
