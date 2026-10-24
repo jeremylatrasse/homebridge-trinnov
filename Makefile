@@ -16,7 +16,7 @@ TSC := ./node_modules/.bin/tsc
 SRC_DIR := src
 DIST_DIR := dist
 
-.PHONY: all build compile check typecheck watch test clean distclean rebuild install help
+.PHONY: all build compile check typecheck watch test clean distclean rebuild install bump release help
 
 ## Default target: compile TypeScript sources
 all: build
@@ -39,6 +39,15 @@ build: $(TSC)
 	@echo "TypeScript build complete -> $(DIST_DIR)/"
 
 compile: build
+
+## Increment patch version in package.json & package-lock.json
+bump:
+	@$(ENV_SETUP); \
+	NEW_VER=$$(npm version patch --no-git-tag-version); \
+	echo "Bumped plugin version to $$NEW_VER"
+
+## Bump version, rebuild dist/, and run tests
+release: bump build test
 
 ## Type-check TypeScript sources without emitting files
 check: $(TSC)
@@ -70,6 +79,8 @@ rebuild: clean build
 help:
 	@echo "Available targets:"
 	@echo "  make          (or make build)     Compile TypeScript in src/ to dist/"
+	@echo "  make bump                         Increment patch version in package.json"
+	@echo "  make release                      Bump patch version, build dist/, and run tests"
 	@echo "  make check    (or make typecheck) Run TypeScript type-checking (--noEmit)"
 	@echo "  make watch                        Compile in watch mode"
 	@echo "  make test                         Build and run unit tests (test-trinnov.mjs)"

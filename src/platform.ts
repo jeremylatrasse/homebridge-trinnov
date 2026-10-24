@@ -9,7 +9,7 @@ import {
   Categories,
 } from 'homebridge';
 
-import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
+import { PLATFORM_NAME, PLUGIN_NAME, PLUGIN_VERSION } from './settings';
 import { TrinnovClient } from './trinnovClient';
 import {
   TrinnovBridgedAccessory,
@@ -32,7 +32,9 @@ export class TrinnovAltitudePlatform implements DynamicPlatformPlugin {
     this.Service = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
 
-    this.log.info(`Initializing Trinnov Altitude Platform: "${this.config.name || 'Trinnov Altitude'}"`);
+    this.log.info(
+      `Initializing Trinnov Altitude Platform v${PLUGIN_VERSION}: "${this.config.name || 'Trinnov Altitude'}"`,
+    );
 
     this.api.on('didFinishLaunching', () => {
       this.discoverDevices();

@@ -1,6 +1,7 @@
 import { Service, PlatformAccessory, CharacteristicValue } from 'homebridge';
 import { TrinnovAltitudePlatform } from './platform';
 import { TrinnovClient } from './trinnovClient';
+import { PLUGIN_VERSION } from './settings';
 
 export interface InputSourceConfig {
   id: number;
@@ -63,7 +64,7 @@ export class TrinnovBridgedAccessory {
       .setCharacteristic(Characteristic.Manufacturer, 'Trinnov Audio')
       .setCharacteristic(Characteristic.Model, 'Altitude32')
       .setCharacteristic(Characteristic.SerialNumber, `TRINNOV-${this.deviceConfig.host}`)
-      .setCharacteristic(Characteristic.FirmwareRevision, '1.0.0');
+      .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);
 
     // 2. Main Power Switch
     const powerSubtype = 'power-switch';
@@ -340,7 +341,7 @@ export class TrinnovTelevisionAccessory {
       .setCharacteristic(Characteristic.Manufacturer, 'Trinnov Audio')
       .setCharacteristic(Characteristic.Model, 'Altitude32')
       .setCharacteristic(Characteristic.SerialNumber, `TRINNOV-TV-${this.deviceConfig.host}`)
-      .setCharacteristic(Characteristic.FirmwareRevision, '1.0.0');
+      .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);
 
     this.tvService = this.accessory.getService(Service.Television) ||
       this.accessory.addService(Service.Television, this.deviceConfig.name, 'altitude-receiver');

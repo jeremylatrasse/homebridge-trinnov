@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TrinnovTelevisionAccessory = exports.TrinnovBridgedAccessory = void 0;
+const settings_1 = require("./settings");
 /**
  * Standard Bridged HomeKit Accessory:
  * Automatically appears in your existing HomeKit Home via your Homebridge bridge
@@ -36,7 +37,7 @@ class TrinnovBridgedAccessory {
             .setCharacteristic(Characteristic.Manufacturer, 'Trinnov Audio')
             .setCharacteristic(Characteristic.Model, 'Altitude32')
             .setCharacteristic(Characteristic.SerialNumber, `TRINNOV-${this.deviceConfig.host}`)
-            .setCharacteristic(Characteristic.FirmwareRevision, '1.0.0');
+            .setCharacteristic(Characteristic.FirmwareRevision, settings_1.PLUGIN_VERSION);
         // 2. Main Power Switch
         const powerSubtype = 'power-switch';
         this.powerService = this.accessory.getServiceById(Service.Switch, powerSubtype) ||
@@ -282,7 +283,7 @@ class TrinnovTelevisionAccessory {
             .setCharacteristic(Characteristic.Manufacturer, 'Trinnov Audio')
             .setCharacteristic(Characteristic.Model, 'Altitude32')
             .setCharacteristic(Characteristic.SerialNumber, `TRINNOV-TV-${this.deviceConfig.host}`)
-            .setCharacteristic(Characteristic.FirmwareRevision, '1.0.0');
+            .setCharacteristic(Characteristic.FirmwareRevision, settings_1.PLUGIN_VERSION);
         this.tvService = this.accessory.getService(Service.Television) ||
             this.accessory.addService(Service.Television, this.deviceConfig.name, 'altitude-receiver');
         this.tvService

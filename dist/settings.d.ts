@@ -8,3 +8,4 @@ export declare const PLATFORM_NAME = "TrinnovAltitude";
  * This must match the name in package.json.
  */
 export declare const PLUGIN_NAME = "homebridge-trinnov-altitude";
+export declare const PLUGIN_VERSION: string;

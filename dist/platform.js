@@ -18,7 +18,7 @@ class TrinnovAltitudePlatform {
         this.api = api;
         this.Service = this.api.hap.Service;
         this.Characteristic = this.api.hap.Characteristic;
-        this.log.info(`Initializing Trinnov Altitude Platform: "${this.config.name || 'Trinnov Altitude'}"`);
+        this.log.info(`Initializing Trinnov Altitude Platform v${settings_1.PLUGIN_VERSION}: "${this.config.name || 'Trinnov Altitude'}"`);
         this.api.on('didFinishLaunching', () => {
             this.discoverDevices();
         });
