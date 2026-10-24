@@ -43,9 +43,9 @@ export declare function isExplicitlyNamed(rawName?: string): boolean;
  *
  * Exposes:
  * - Service.Television (`AUDIO_RECEIVER`): Power (WoL / Standby), Input Source selector, and Apple TV Remote widget
- * - Service.TelevisionSpeaker: Hardware volume rocker & Apple TV Remote volume control
+ * - Service.TelevisionSpeaker: Hardware volume rocker & Apple TV Remote volume control (`RELATIVE_WITH_CURRENT`)
  * - Service.InputSource: Explicitly named Trinnov Profiles (unnamed profiles are ignored)
- * - Optional Volume Slider (`Service.Fan` or `Service.Lightbulb`) & Explicitly Named Preset switches on the same Receiver accessory
+ * - In-Room Volume Slider (`Service.Fan` or `Service.Lightbulb`) & Explicitly Named Preset switches on the same Receiver accessory
  */
 export declare class TrinnovReceiverAccessory {
     private readonly platform;

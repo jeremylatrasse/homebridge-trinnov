@@ -73,9 +73,9 @@ export function isExplicitlyNamed(rawName?: string): boolean {
  *
  * Exposes:
  * - Service.Television (`AUDIO_RECEIVER`): Power (WoL / Standby), Input Source selector, and Apple TV Remote widget
- * - Service.TelevisionSpeaker: Hardware volume rocker & Apple TV Remote volume control
+ * - Service.TelevisionSpeaker: Hardware volume rocker & Apple TV Remote volume control (`RELATIVE_WITH_CURRENT`)
  * - Service.InputSource: Explicitly named Trinnov Profiles (unnamed profiles are ignored)
- * - Optional Volume Slider (`Service.Fan` or `Service.Lightbulb`) & Explicitly Named Preset switches on the same Receiver accessory
+ * - In-Room Volume Slider (`Service.Fan` or `Service.Lightbulb`) & Explicitly Named Preset switches on the same Receiver accessory
  */
 export class TrinnovReceiverAccessory {
   private tvService: Service;
@@ -104,9 +104,10 @@ export class TrinnovReceiverAccessory {
       .setCharacteristic(Characteristic.SerialNumber, `TRINNOV-${this.deviceConfig.host}`)
       .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);
 
-    // 2. Primary Television / Receiver Service
+    // 2. Primary Television / Receiver Service (marked as Primary Service!)
     this.tvService = this.accessory.getService(Service.Television) ||
       this.accessory.addService(Service.Television, cleanName, 'altitude-receiver');
+    this.tvService.setPrimaryService(true);
 
     this.tvService
       .setCharacteristic(Characteristic.Name, cleanName)
@@ -146,17 +147,41 @@ export class TrinnovReceiverAccessory {
       });
 
     // 3. Television Speaker Service (Apple TV Remote & iPhone hardware volume buttons)
+    // IMPORTANT: Optional characteristics (Active, VolumeControlType, VolumeSelector, Volume)
+    // MUST be added before calling accessory.addService() and MUST use RELATIVE_WITH_CURRENT
+    // so the iOS Control Center Apple TV Remote enables the hardware volume buttons!
     const speakerName = sanitizeHomeKitName(`${cleanName} Speaker`, 'Altitude Speaker');
-    this.speakerService = this.accessory.getService(Service.TelevisionSpeaker) ||
-      this.accessory.addService(Service.TelevisionSpeaker, speakerName, 'altitude-speaker');
+    let speakerSvc = this.accessory.getService(Service.TelevisionSpeaker);
+    if (!speakerSvc) {
+      speakerSvc = new Service.TelevisionSpeaker(speakerName, 'altitude-speaker');
+      speakerSvc.addOptionalCharacteristic(Characteristic.Active);
+      speakerSvc.addOptionalCharacteristic(Characteristic.VolumeControlType);
+      speakerSvc.addOptionalCharacteristic(Characteristic.VolumeSelector);
+      speakerSvc.addOptionalCharacteristic(Characteristic.Volume);
+      speakerSvc.setCharacteristic(Characteristic.Name, speakerName);
+      speakerSvc.setCharacteristic(Characteristic.Active, Characteristic.Active.ACTIVE);
+      speakerSvc.setCharacteristic(
+        Characteristic.VolumeControlType,
+        Characteristic.VolumeControlType.RELATIVE_WITH_CURRENT,
+      );
+      this.accessory.addService(speakerSvc);
+    } else {
+      speakerSvc
+        .setCharacteristic(Characteristic.Name, speakerName)
+        .setCharacteristic(Characteristic.Active, Characteristic.Active.ACTIVE)
+        .setCharacteristic(
+          Characteristic.VolumeControlType,
+          Characteristic.VolumeControlType.RELATIVE_WITH_CURRENT,
+        );
+    }
+    this.speakerService = speakerSvc;
 
     this.speakerService
-      .setCharacteristic(Characteristic.Name, speakerName)
-      .setCharacteristic(Characteristic.Active, Characteristic.Active.ACTIVE)
-      .setCharacteristic(
-        Characteristic.VolumeControlType,
-        Characteristic.VolumeControlType.ABSOLUTE,
-      );
+      .getCharacteristic(Characteristic.Active)
+      .onGet(() => Characteristic.Active.ACTIVE)
+      .onSet(() => {
+        // Keep speaker service active for iOS Remote
+      });
 
     this.speakerService
       .getCharacteristic(Characteristic.Mute)
@@ -187,7 +212,7 @@ export class TrinnovReceiverAccessory {
     // 4. Explicitly Named Input Sources (Profiles) in the Receiver's Input Picker
     this.setupInputSources();
 
-    // 5. Optional In-Room Volume Slider & Named Preset Switches attached to this Receiver
+    // 5. In-Room Volume Slider & Named Preset Switches attached & linked to this Receiver
     this.setupVolumeSlider(cleanName);
     this.setupSwitches(cleanName);
 
@@ -210,18 +235,6 @@ export class TrinnovReceiverAccessory {
     const subtype = `input-${id}`;
     const safeName = sanitizeHomeKitName(rawName, `Input ${id}`);
 
-    let inputService = this.accessory.getServiceById(Service.InputSource, subtype);
-    if (!inputService) {
-      inputService = new Service.InputSource(safeName, subtype);
-      inputService.setCharacteristic(Characteristic.Name, safeName);
-      inputService.setCharacteristic(Characteristic.ConfiguredName, safeName);
-      this.accessory.addService(inputService);
-    } else {
-      inputService.displayName = safeName;
-      inputService.setCharacteristic(Characteristic.Name, safeName);
-      inputService.setCharacteristic(Characteristic.ConfiguredName, safeName);
-    }
-
     let hapInputType = Characteristic.InputSourceType.HDMI;
     if (type === 'AIRPLAY') {
       hapInputType = Characteristic.InputSourceType.AIRPLAY;
@@ -229,17 +242,39 @@ export class TrinnovReceiverAccessory {
       hapInputType = Characteristic.InputSourceType.OTHER;
     }
 
-    inputService
-      .setCharacteristic(Characteristic.Identifier, id)
-      .setCharacteristic(
-        Characteristic.IsConfigured,
-        Characteristic.IsConfigured.CONFIGURED,
-      )
-      .setCharacteristic(Characteristic.InputSourceType, hapInputType)
-      .setCharacteristic(
-        Characteristic.CurrentVisibilityState,
-        Characteristic.CurrentVisibilityState.SHOWN,
-      );
+    let inputService = this.accessory.getServiceById(Service.InputSource, subtype);
+    if (!inputService) {
+      inputService = new Service.InputSource(safeName, subtype);
+      inputService
+        .setCharacteristic(Characteristic.Identifier, id)
+        .setCharacteristic(Characteristic.Name, safeName)
+        .setCharacteristic(Characteristic.ConfiguredName, safeName)
+        .setCharacteristic(
+          Characteristic.IsConfigured,
+          Characteristic.IsConfigured.CONFIGURED,
+        )
+        .setCharacteristic(Characteristic.InputSourceType, hapInputType)
+        .setCharacteristic(
+          Characteristic.CurrentVisibilityState,
+          Characteristic.CurrentVisibilityState.SHOWN,
+        );
+      this.accessory.addService(inputService);
+    } else {
+      inputService.displayName = safeName;
+      inputService
+        .setCharacteristic(Characteristic.Identifier, id)
+        .setCharacteristic(Characteristic.Name, safeName)
+        .setCharacteristic(Characteristic.ConfiguredName, safeName)
+        .setCharacteristic(
+          Characteristic.IsConfigured,
+          Characteristic.IsConfigured.CONFIGURED,
+        )
+        .setCharacteristic(Characteristic.InputSourceType, hapInputType)
+        .setCharacteristic(
+          Characteristic.CurrentVisibilityState,
+          Characteristic.CurrentVisibilityState.SHOWN,
+        );
+    }
 
     this.tvService.addLinkedService(inputService);
     this.inputServices.set(id, inputService);
@@ -267,6 +302,7 @@ export class TrinnovReceiverAccessory {
       svc.updateCharacteristic(Characteristic.ConfiguredName, safeName);
     }
 
+    this.tvService.addLinkedService(svc);
     return svc;
   }
 
@@ -302,12 +338,16 @@ export class TrinnovReceiverAccessory {
       if (!fanSvc) {
         fanSvc = new Service.Fan(volName, fanSubtype);
         fanSvc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+        fanSvc.addOptionalCharacteristic(Characteristic.RotationSpeed);
         fanSvc.setCharacteristic(Characteristic.Name, volName);
         fanSvc.setCharacteristic(Characteristic.ConfiguredName, volName);
         this.accessory.addService(fanSvc);
       } else {
         if (!fanSvc.testCharacteristic(Characteristic.ConfiguredName)) {
           fanSvc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+        }
+        if (!fanSvc.testCharacteristic(Characteristic.RotationSpeed)) {
+          fanSvc.addOptionalCharacteristic(Characteristic.RotationSpeed);
         }
         fanSvc.displayName = volName;
         fanSvc.setCharacteristic(Characteristic.Name, volName);
@@ -328,18 +368,23 @@ export class TrinnovReceiverAccessory {
           this.client.setVolumePercentage(Number(value));
         });
 
+      this.tvService.addLinkedService(fanSvc);
       this.volumeSliderService = fanSvc;
     } else {
       let lightSvc = this.accessory.getServiceById(Service.Lightbulb, lightSubtype);
       if (!lightSvc) {
         lightSvc = new Service.Lightbulb(volName, lightSubtype);
         lightSvc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+        lightSvc.addOptionalCharacteristic(Characteristic.Brightness);
         lightSvc.setCharacteristic(Characteristic.Name, volName);
         lightSvc.setCharacteristic(Characteristic.ConfiguredName, volName);
         this.accessory.addService(lightSvc);
       } else {
         if (!lightSvc.testCharacteristic(Characteristic.ConfiguredName)) {
           lightSvc.addOptionalCharacteristic(Characteristic.ConfiguredName);
+        }
+        if (!lightSvc.testCharacteristic(Characteristic.Brightness)) {
+          lightSvc.addOptionalCharacteristic(Characteristic.Brightness);
         }
         lightSvc.displayName = volName;
         lightSvc.setCharacteristic(Characteristic.Name, volName);
@@ -360,6 +405,7 @@ export class TrinnovReceiverAccessory {
           this.client.setVolumePercentage(Number(value));
         });
 
+      this.tvService.addLinkedService(lightSvc);
       this.volumeSliderService = lightSvc;
     }
   }
