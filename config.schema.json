@@ -69,13 +69,9 @@
                 {
                   "title": "Light Dimmer Slider (0-100% brightness slider on the Receiver)",
                   "enum": ["lightbulb"]
-                },
-                {
-                  "title": "None (Use Apple TV Remote / hardware volume buttons only)",
-                  "enum": ["none"]
                 }
               ],
-              "description": "Optional in-room 0-100% volume slider attached to the Receiver accessory. Apple TV Remote volume control always works via the Receiver's speaker service."
+              "description": "In-room 0-100% volume slider attached to the Receiver accessory."
             },
             "enableMuteSwitch": {
               "title": "Enable Dedicated Mute Switch",
