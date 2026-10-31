@@ -44,16 +44,34 @@ export declare class TrinnovClient extends EventEmitter {
     private reconnectTimer?;
     private heartbeatTimer?;
     private pingIntervalTimer?;
+    private transitionTimer?;
+    private powerOffDisconnectTimer?;
+    private awaitingResponse;
+    private lastDataReceivedAt;
+    private lastProbeSentAt;
     readonly config: Required<TrinnovClientConfig>;
     state: TrinnovState;
     constructor(config: TrinnovClientConfig, log: LoggerLike);
     start(): void;
     stop(): void;
+    restart(): void;
+    private clearTimers;
     isConnected(): boolean;
+    /**
+     * Actively probes whether the Trinnov unit is accepting TCP connections and responding
+     * to protocol commands within the given timeout.
+     */
+    checkIfResponding(timeoutMs?: number): Promise<boolean>;
+    /**
+     * Rapidly polls during start / stop / restart transitions to detect as soon as the unit
+     * starts or stops responding.
+     */
+    private startResponsivenessPolling;
     private connect;
     private disconnect;
     private handleSocketClose;
     private startHeartbeat;
+    private markUnitResponding;
     private handleIncomingData;
     private parseLine;
     sendRaw(command: string): void;

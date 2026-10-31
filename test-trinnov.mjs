@@ -76,4 +76,8 @@ assert.strictEqual(isExplicitlyNamed('Profile 3'), false);
 assert.strictEqual(isExplicitlyNamed('Apple TV 4K'), true);
 assert.strictEqual(isExplicitlyNamed('Kaleidescape'), true);
 
+// Test 5: Responsiveness check and power state on incoming data
+assert.strictEqual(client.state.power, true, 'Power state should become true once unit responds with data');
+client.stop();
+
 console.log('✅ All tests passed successfully!');
