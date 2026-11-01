@@ -50,6 +50,8 @@ export declare class TrinnovClient extends EventEmitter {
     private awaitingResponse;
     private standbyQuietMode;
     private isWakingUp;
+    private isStopping;
+    private logHeartbeats;
     private lastDataReceivedAt;
     private lastProbeSentAt;
     readonly config: Required<TrinnovClientConfig>;

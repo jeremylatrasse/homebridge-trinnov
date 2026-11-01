@@ -57,6 +57,8 @@ export class TrinnovClient extends EventEmitter {
   private awaitingResponse = false;
   private standbyQuietMode = false;
   private isWakingUp = false;
+  private isStopping = false;
+  private logHeartbeats = false;
   private lastDataReceivedAt = 0;
   private lastProbeSentAt = 0;
 
@@ -93,6 +95,11 @@ export class TrinnovClient extends EventEmitter {
 
   public start(): void {
     this.isDestroyed = false;
+    this.standbyQuietMode = false;
+    this.isWakingUp = true;
+    this.isStopping = false;
+    this.logHeartbeats = true;
+    this.log.info(`[${this.config.host}] Start state sent — logging heartbeats until unit starts...`);
     this.connect();
     this.startHeartbeat();
     this.startResponsivenessPolling('start');
@@ -100,12 +107,18 @@ export class TrinnovClient extends EventEmitter {
 
   public stop(): void {
     this.isDestroyed = true;
+    this.isWakingUp = false;
+    this.isStopping = false;
+    this.logHeartbeats = false;
     this.clearTimers();
     this.disconnect();
   }
 
   public restart(): void {
     this.standbyQuietMode = false;
+    this.isWakingUp = true;
+    this.isStopping = false;
+    this.logHeartbeats = true;
     this.log.info(`[${this.config.host}] Restarting Trinnov client connection & checking if unit is responding...`);
     this.stop();
     this.start();
@@ -144,6 +157,9 @@ export class TrinnovClient extends EventEmitter {
    * Signals that the unit is in standby and suppresses all further logging until powered on again.
    */
   private handleFirstDroppedHeartbeat(reason?: string): void {
+    this.isStopping = false;
+    this.logHeartbeats = false;
+
     if (!this.standbyQuietMode) {
       this.log.info(
         `[${this.config.host}] ${reason || 'First dropped heartbeat — unit is powered off. Suppressing further logging until powered on again.'}`,
@@ -261,6 +277,8 @@ export class TrinnovClient extends EventEmitter {
       const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
       if (Date.now() - startedAt > maxDurationMs) {
         this.isWakingUp = false;
+        this.isStopping = false;
+        this.logHeartbeats = false;
         if (!this.standbyQuietMode) {
           this.log.warn(`[${this.config.host}] Timed out after ${elapsedSec}s waiting for unit (${mode}).`);
         }
@@ -275,29 +293,37 @@ export class TrinnovClient extends EventEmitter {
       if (mode === 'start' || mode === 'restart') {
         if (this.isConnected()) {
           this.isWakingUp = false;
-          this.log.info(`[${this.config.host}] Unit is now responding (${elapsedSec}s elapsed).`);
+          this.logHeartbeats = false;
+          this.log.info(`[${this.config.host}] Unit is now responding (${elapsedSec}s elapsed) — stopping heartbeat logging.`);
           if (this.transitionTimer) {
             clearInterval(this.transitionTimer);
             this.transitionTimer = undefined;
           }
           return;
         }
-        if (!this.standbyQuietMode) {
-          this.log.debug(`[${this.config.host}] Waiting for unit to respond (${elapsedSec}s elapsed)...`);
+        if (!this.standbyQuietMode && this.logHeartbeats) {
+          this.log.info(`[${this.config.host}] Heartbeat probe (${mode}): waiting for unit to start (${elapsedSec}s elapsed)...`);
         }
         if (this.reconnectTimer) {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = undefined;
         }
-        this.connect();
+        if (this.socket && !this.socket.destroyed) {
+          this.sendHeartbeatProbe();
+        } else {
+          this.connect();
+        }
       } else if (mode === 'stop') {
+        if (!this.standbyQuietMode && this.logHeartbeats) {
+          this.log.info(`[${this.config.host}] Sending heartbeat to verify unit has stopped (${elapsedSec}s elapsed)...`);
+        }
         const responding = await this.checkIfResponding(1500);
         if (!responding) {
           this.handleFirstDroppedHeartbeat(
-            `First dropped heartbeat (${elapsedSec}s elapsed) — unit is powered off. Suppressing further logging until powered on again.`,
+            `First dropped heartbeat (${elapsedSec}s elapsed) — unit is stopped. Suppressing further logging until state changes again.`,
           );
-        } else if (!this.standbyQuietMode) {
-          this.log.debug(`[${this.config.host}] Unit is still responding during shutdown (${elapsedSec}s elapsed)...`);
+        } else if (!this.standbyQuietMode && this.logHeartbeats) {
+          this.log.info(`[${this.config.host}] Heartbeat response received — unit is still shutting down (${elapsedSec}s elapsed)...`);
         }
       }
     }, intervalMs);
@@ -349,7 +375,7 @@ export class TrinnovClient extends EventEmitter {
     });
 
     socket.on('timeout', () => {
-      if (!this.standbyQuietMode) {
+      if (!this.standbyQuietMode && this.logHeartbeats) {
         this.log.debug(`[${this.config.host}] Socket timeout - probing if unit is still responding...`);
       }
       this.sendHeartbeatProbe();
@@ -419,6 +445,10 @@ export class TrinnovClient extends EventEmitter {
       return;
     }
 
+    if (!this.standbyQuietMode && this.logHeartbeats) {
+      this.log.info(`[${this.config.host}] Sending heartbeat probe...`);
+    }
+
     this.lastProbeSentAt = Date.now();
     const probeSentAt = this.lastProbeSentAt;
     this.sendRaw('send_volume');
@@ -447,16 +477,29 @@ export class TrinnovClient extends EventEmitter {
 
   private markUnitResponding(): void {
     this.lastDataReceivedAt = Date.now();
-    this.isWakingUp = false;
     if (this.heartbeatTimeoutTimer) {
       clearTimeout(this.heartbeatTimeoutTimer);
       this.heartbeatTimeoutTimer = undefined;
     }
+
+    // If stop was requested, ignore in-flight responses before the unit shuts down;
+    // keep state.power = false and continue heartbeat logging until it actually stops.
+    if (this.isStopping) {
+      if (!this.standbyQuietMode && this.logHeartbeats) {
+        this.log.info(`[${this.config.host}] Heartbeat received while stopping — unit is still shutting down...`);
+      }
+      return;
+    }
+
+    this.isWakingUp = false;
+    const wasLoggingHeartbeats = this.logHeartbeats;
+    this.logHeartbeats = false;
+
     const wasQuiet = this.standbyQuietMode;
     this.standbyQuietMode = false;
-    if (this.awaitingResponse || wasQuiet) {
+    if (this.awaitingResponse || wasQuiet || wasLoggingHeartbeats) {
       this.awaitingResponse = false;
-      this.log.info(`[${this.config.host}] Trinnov Altitude is responding and ready`);
+      this.log.info(`[${this.config.host}] Trinnov Altitude has started and is responding — stopping heartbeat logging.`);
     }
     if (!this.state.power) {
       this.state.power = true;
@@ -607,7 +650,9 @@ export class TrinnovClient extends EventEmitter {
   public async powerOn(): Promise<void> {
     this.standbyQuietMode = false;
     this.isWakingUp = true;
-    this.log.info(`[${this.config.host}] Powering on Altitude...`);
+    this.isStopping = false;
+    this.logHeartbeats = true;
+    this.log.info(`[${this.config.host}] Start state sent — powering on Altitude and logging heartbeats until unit starts...`);
     if (this.powerOffDisconnectTimer) {
       clearTimeout(this.powerOffDisconnectTimer);
       this.powerOffDisconnectTimer = undefined;
@@ -616,7 +661,12 @@ export class TrinnovClient extends EventEmitter {
     const alreadyResponding = await this.checkIfResponding(1500);
     if (alreadyResponding) {
       this.isWakingUp = false;
-      this.log.info(`[${this.config.host}] Unit is already responding — connecting immediately.`);
+      this.logHeartbeats = false;
+      this.log.info(`[${this.config.host}] Unit is already responding — connecting immediately and stopping heartbeat logging.`);
+      if (!this.state.power) {
+        this.state.power = true;
+        this.emit('powerChange', true);
+      }
       this.connect();
       return;
     }
@@ -642,13 +692,23 @@ export class TrinnovClient extends EventEmitter {
    * Power Off / Standby over TCP automation connection.
    */
   public powerOff(): void {
+    this.standbyQuietMode = false;
     this.isWakingUp = false;
-    this.log.info(`[${this.config.host}] Sending power off / standby to Altitude...`);
+    this.isStopping = true;
+    this.logHeartbeats = true;
+    this.log.info(`[${this.config.host}] Stop state sent — sending power off / standby to Altitude...`);
     // Both standard power_off and token supported by various firmware
     this.sendRaw('power_off');
     this.sendRaw('power_off_SECURED_FHZMCH48FE');
 
-    // Poll to verify when the unit drops its first heartbeat / stops responding and enters standby
+    // Update power state immediately when stop is sent
+    const prevPower = this.state.power;
+    this.state.power = false;
+    if (prevPower) {
+      this.emit('powerChange', false);
+    }
+
+    // Send heartbeats as appropriate to ensure the device is stopped, then stop logging
     this.startResponsivenessPolling('stop', 30000, 1500);
 
     if (this.powerOffDisconnectTimer) {
