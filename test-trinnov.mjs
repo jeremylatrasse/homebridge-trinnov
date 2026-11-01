@@ -78,6 +78,36 @@ assert.strictEqual(isExplicitlyNamed('Kaleidescape'), true);
 
 // Test 5: Responsiveness check and power state on incoming data
 assert.strictEqual(client.state.power, true, 'Power state should become true once unit responds with data');
+
+// Test 6: First dropped heartbeat when powered off suppresses further logging until powered on again
+const logs = [];
+const countingLogger = {
+  info: (msg) => logs.push(msg),
+  warn: (msg) => logs.push(msg),
+  error: (msg) => logs.push(msg),
+  debug: (msg) => logs.push(msg),
+};
+const quietClient = new TrinnovClient({ host: '172.16.1.66', port: 44100 }, countingLogger);
+quietClient['handleIncomingData']('VOLUME -30.0\r\n');
+assert.strictEqual(quietClient.state.power, true);
+assert.strictEqual(quietClient['standbyQuietMode'], false);
+
+logs.length = 0;
+quietClient['handleFirstDroppedHeartbeat']();
+assert.strictEqual(quietClient['standbyQuietMode'], true, 'Should enter standbyQuietMode after first dropped heartbeat');
+assert.strictEqual(logs.length, 1, 'Should log the first dropped heartbeat exactly once');
+
+// Subsequent dropped heartbeats or disconnected sends while powered off should produce zero logs
+quietClient['handleFirstDroppedHeartbeat']();
+quietClient.sendRaw('send_volume');
+assert.strictEqual(logs.length, 1, 'No further logging should occur while powered off after first dropped heartbeat');
+
+// Powering on / receiving response re-enables logging
+quietClient['handleIncomingData']('VOLUME -30.0\r\n');
+assert.strictEqual(quietClient['standbyQuietMode'], false, 'standbyQuietMode should clear when powered on again');
+assert.ok(logs.length > 1, 'Logging should resume once unit is powered on again');
+
+quietClient.stop();
 client.stop();
 
 console.log('✅ All tests passed successfully!');
