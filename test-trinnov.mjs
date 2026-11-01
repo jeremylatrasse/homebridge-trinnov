@@ -78,64 +78,6 @@ assert.strictEqual(isExplicitlyNamed('Kaleidescape'), true);
 
 // Test 5: Responsiveness check and power state on incoming data
 assert.strictEqual(client.state.power, true, 'Power state should become true once unit responds with data');
-
-// Test 6: First dropped heartbeat when powered off suppresses further logging until powered on again
-const logs = [];
-const countingLogger = {
-  info: (msg) => logs.push(msg),
-  warn: (msg) => logs.push(msg),
-  error: (msg) => logs.push(msg),
-  debug: (msg) => logs.push(msg),
-};
-const quietClient = new TrinnovClient({ host: '172.16.1.66', port: 44100 }, countingLogger);
-quietClient['handleIncomingData']('VOLUME -30.0\r\n');
-assert.strictEqual(quietClient.state.power, true);
-assert.strictEqual(quietClient['standbyQuietMode'], false);
-
-logs.length = 0;
-quietClient['handleFirstDroppedHeartbeat']();
-assert.strictEqual(quietClient['standbyQuietMode'], true, 'Should enter standbyQuietMode after first dropped heartbeat');
-assert.strictEqual(logs.length, 1, 'Should log the first dropped heartbeat exactly once');
-
-// Subsequent dropped heartbeats or disconnected sends while powered off should produce zero logs
-quietClient['handleFirstDroppedHeartbeat']();
-quietClient.sendRaw('send_volume');
-assert.strictEqual(logs.length, 1, 'No further logging should occur while powered off after first dropped heartbeat');
-
-// Powering on / receiving response re-enables logging
-quietClient['handleIncomingData']('VOLUME -30.0\r\n');
-assert.strictEqual(quietClient['standbyQuietMode'], false, 'standbyQuietMode should clear when powered on again');
-assert.ok(logs.length > 1, 'Logging should resume once unit is powered on again');
-
-// Test 7: Start state logs heartbeats until unit starts, then stops logging them;
-// Stop state updates power state, sends/logs heartbeats until unit stops, then suppresses logging
-quietClient['isWakingUp'] = true;
-quietClient['logHeartbeats'] = true;
-quietClient['handleIncomingData']('VOLUME -28.0\r\n');
-assert.strictEqual(quietClient['logHeartbeats'], false, 'Heartbeat logging should stop once unit starts responding');
-assert.strictEqual(quietClient.state.power, true, 'Power state should be true once unit starts');
-
-let powerChangedToFalse = false;
-quietClient.once('powerChange', (p) => {
-  if (p === false) {
-    powerChangedToFalse = true;
-  }
-});
-quietClient.powerOff();
-assert.strictEqual(quietClient.state.power, false, 'Power state should immediately update to false when stop is sent');
-assert.strictEqual(powerChangedToFalse, true, 'powerChange(false) should emit when stop is sent');
-assert.strictEqual(quietClient['isStopping'], true, 'isStopping should be true while verifying unit has stopped');
-assert.strictEqual(quietClient['logHeartbeats'], true, 'logHeartbeats should be true while verifying unit has stopped');
-
-// Once the unit stops responding (first dropped heartbeat), all logging stops until state changes again
-logs.length = 0;
-quietClient['handleFirstDroppedHeartbeat']();
-assert.strictEqual(quietClient['isStopping'], false, 'isStopping should clear once unit is confirmed stopped');
-assert.strictEqual(quietClient['logHeartbeats'], false, 'logHeartbeats should be false once unit is stopped');
-assert.strictEqual(quietClient['standbyQuietMode'], true, 'standbyQuietMode should be true once unit is stopped');
-assert.strictEqual(logs.length, 1, 'Should log confirmation that unit stopped and suppress further logs');
-
-quietClient.stop();
 client.stop();
 
 console.log('✅ All tests passed successfully!');

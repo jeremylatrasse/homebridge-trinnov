@@ -43,15 +43,10 @@ export declare class TrinnovClient extends EventEmitter {
     private buffer;
     private reconnectTimer?;
     private heartbeatTimer?;
-    private heartbeatTimeoutTimer?;
     private pingIntervalTimer?;
     private transitionTimer?;
     private powerOffDisconnectTimer?;
     private awaitingResponse;
-    private standbyQuietMode;
-    private isWakingUp;
-    private isStopping;
-    private logHeartbeats;
     private lastDataReceivedAt;
     private lastProbeSentAt;
     readonly config: Required<TrinnovClientConfig>;
@@ -61,11 +56,6 @@ export declare class TrinnovClient extends EventEmitter {
     stop(): void;
     restart(): void;
     private clearTimers;
-    /**
-     * Called on the first dropped heartbeat / failed probe when the unit is powered off.
-     * Signals that the unit is in standby and suppresses all further logging until powered on again.
-     */
-    private handleFirstDroppedHeartbeat;
     isConnected(): boolean;
     /**
      * Actively probes whether the Trinnov unit is accepting TCP connections and responding
@@ -80,7 +70,6 @@ export declare class TrinnovClient extends EventEmitter {
     private connect;
     private disconnect;
     private handleSocketClose;
-    private sendHeartbeatProbe;
     private startHeartbeat;
     private markUnitResponding;
     private handleIncomingData;
