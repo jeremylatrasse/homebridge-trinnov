@@ -2,13 +2,13 @@ import { PlatformAccessory } from 'homebridge';
 import { TrinnovAltitudePlatform } from './platform';
 import { TrinnovClient } from './trinnovClient';
 export interface InputSourceConfig {
-    id: number;
-    name: string;
+    id?: number;
+    name?: string;
     type?: 'HDMI' | 'AUDIO_SYSTEM' | 'AIRPLAY' | 'OTHER';
 }
 export interface PresetConfig {
-    id: number;
-    name: string;
+    id?: number;
+    name?: string;
 }
 export interface TrinnovDeviceConfig {
     name: string;

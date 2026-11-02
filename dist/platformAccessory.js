@@ -129,8 +129,9 @@ class TrinnovReceiverAccessory {
     }
     setupInputSources() {
         const configuredInputs = (this.deviceConfig.inputs || []).filter((input) => isExplicitlyNamed(input.name));
-        for (const input of configuredInputs) {
-            this.registerInputSource(input.id, input.name, input.type);
+        for (const [idx, input] of configuredInputs.entries()) {
+            const inputId = typeof input.id === 'number' ? input.id : idx;
+            this.registerInputSource(inputId, input.name, input.type);
         }
     }
     registerInputSource(id, rawName, type) {
@@ -314,30 +315,31 @@ class TrinnovReceiverAccessory {
         }
         // Named Presets only
         const configuredPresets = (this.deviceConfig.presets || []).filter((preset) => isExplicitlyNamed(preset.name));
-        for (const preset of configuredPresets) {
-            const pSubtype = `preset-${preset.id}`;
-            const safePresetName = sanitizeHomeKitName(preset.name, `Preset ${preset.id}`);
+        for (const [idx, preset] of configuredPresets.entries()) {
+            const presetId = typeof preset.id === 'number' ? preset.id : idx + 1;
+            const pSubtype = `preset-${presetId}`;
+            const safePresetName = sanitizeHomeKitName(preset.name, `Preset ${presetId}`);
             const pService = this.createOrUpdateSwitch(pSubtype, safePresetName);
             pService
                 .getCharacteristic(Characteristic.On)
-                .onGet(() => this.client.state.currentPresetId === preset.id)
+                .onGet(() => this.client.state.currentPresetId === presetId)
                 .onSet((value) => {
                 if (Boolean(value)) {
-                    this.platform.log.info(`[${cleanDeviceName}] HomeKit Preset selected -> Preset ${preset.id} (${safePresetName})`);
-                    this.client.setPreset(preset.id);
+                    this.platform.log.info(`[${cleanDeviceName}] HomeKit Preset selected -> Preset ${presetId} (${safePresetName})`);
+                    this.client.setPreset(presetId);
                     for (const [otherId, otherService] of this.presetSwitchServices.entries()) {
-                        otherService.updateCharacteristic(Characteristic.On, otherId === preset.id);
+                        otherService.updateCharacteristic(Characteristic.On, otherId === presetId);
                     }
                 }
                 else {
-                    if (this.client.state.currentPresetId === preset.id) {
+                    if (this.client.state.currentPresetId === presetId) {
                         setTimeout(() => {
                             pService.updateCharacteristic(Characteristic.On, true);
                         }, 150);
                     }
                 }
             });
-            this.presetSwitchServices.set(preset.id, pService);
+            this.presetSwitchServices.set(presetId, pService);
         }
     }
     subscribeClientEvents() {
