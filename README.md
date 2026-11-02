@@ -29,16 +29,21 @@ A dynamic platform plugin for [Homebridge](https://homebridge.io) that gives you
 In the **Homebridge UI** (open the top-right menu → **Terminal**) or via SSH on your Homebridge server, run:
 
 ```bash
-# If using hb-service (Homebridge OS / Raspberry Pi / Linux / macOS service):
-hb-service add git+https://github.com/jeremylatrasse/homebridge-trinnov.git
+# 1. If using Homebridge UI Terminal or hb-service (Linux / Raspberry Pi / Homebridge OS):
+#    Install into the Homebridge storage/plugin directory (/var/lib/homebridge):
+cd /var/lib/homebridge && npm install git+https://github.com/jeremylatrasse/homebridge-trinnov.git
 
-# Or using npm directly:
+# 2. Or if Homebridge uses global node_modules (macOS / manual global install):
 sudo npm install -g git+https://github.com/jeremylatrasse/homebridge-trinnov.git
 ```
+
+> **Note:** `hb-service add` only accepts published npm package names and rejects `git+https://...` URLs. Always use `npm install` as shown above when installing directly from GitHub, then restart Homebridge.
 
 ### Option 2: Install from npm (Once Published)
 
 ```bash
+hb-service add homebridge-trinnov-altitude
+# or
 npm install -g homebridge-trinnov-altitude
 ```
 
@@ -108,7 +113,7 @@ Configure using the Homebridge UI or add the platform to your `config.json`:
 | `minVolumeDb` | number | `-90.0` | Minimum volume in dB corresponding to 0% in HomeKit. |
 | `maxVolumeDb` | number | `0.0` | Maximum volume in dB corresponding to 100% in HomeKit (protects equipment). |
 | `enableVolumeSlider` | boolean | `true` | Creates a companion slider in Apple Home for in-room volume adjustments. |
-| `volumeAccessoryType` | string | `fan` | Volume slider service type (`fan` or `lightbulb`). |
+| `volumeAccessoryType` | string | `fan` | Volume slider service type (`fan`, `lightbulb`, or `none`). |
 | `enableMuteSwitch` | boolean | `false` | Exposes a dedicated Mute switch on the Receiver. |
 | `enableBypassSwitch` | boolean | `false` | Exposes a switch to bypass the Trinnov Acoustic Optimizer. |
 | `inputs` | array | Optional | Array of explicitly named Trinnov profiles `{ "id": 0, "name": "Apple TV", "type": "HDMI" }`. |
