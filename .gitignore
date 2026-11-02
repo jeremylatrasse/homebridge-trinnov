@@ -14,10 +14,25 @@ npm-debug.log*
 .vscode/
 .idea/
 
-# Xcode project & workspace files
+# Xcode project, workspace & build/cache files (local only)
 *.xcodeproj/
 *.pbxproj
 *.xcworkspace/
+*.xcplugincache
+CachedSpecifications-*
+*/Xcode/
+Xcode/
+[0-9]*.[0-9]*-*/
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+timeline.xctimeline
+playground.xcworkspace
 DerivedData/
 .build/
+.swiftpm/
 Products/

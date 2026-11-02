@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { TrinnovClient } from './dist/trinnovClient.js';
 import { sanitizeHomeKitName, isExplicitlyNamed } from './dist/platformAccessory.js';
 
@@ -79,5 +80,12 @@ assert.strictEqual(isExplicitlyNamed('Kaleidescape'), true);
 // Test 5: Responsiveness check and power state on incoming data
 assert.strictEqual(client.state.power, true, 'Power state should become true once unit responds with data');
 client.stop();
+
+// Test 6: config.schema.json validation checks for Homebridge UI compatibility
+const schemaJson = JSON.parse(readFileSync('./config.schema.json', 'utf8'));
+const deviceSchema = schemaJson.schema.properties.devices.items;
+assert.strictEqual(deviceSchema.properties.host.format, undefined, 'host must not have format:hostname which rejects IPv4 addresses in Homebridge UI');
+assert.strictEqual(deviceSchema.properties.inputs.items.required, undefined, 'inputs.items must not mark id/name required (breaks id: 0 and unnamed profiles in Homebridge UI)');
+assert.strictEqual(deviceSchema.properties.presets.items.required, undefined, 'presets.items must not mark id/name required (breaks unnamed presets in Homebridge UI)');
 
 console.log('✅ All tests passed successfully!');

@@ -4,6 +4,16 @@
 
 set -e
 
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Ensure no Xcode-specific files are ever staged or committed to GitHub
+XCODE_STAGED=($(git diff --cached --name-only | grep -E '(\.xcodeproj/|\.xcworkspace/|\.pbxproj$|/Xcode/|\.xcplugincache$|CachedSpecifications-|xcuserdata/|DerivedData/)' || true))
+if [ ${#XCODE_STAGED[@]} -gt 0 ]; then
+  echo "Unstaging local-only Xcode files from commit: ${XCODE_STAGED[*]}"
+  git rm --cached -f --quiet -- "${XCODE_STAGED[@]}" 2>/dev/null || git reset -q HEAD -- "${XCODE_STAGED[@]}" || true
+fi
+
 if [ "${TRINNOV_SKIP_VERSION_BUMP:-0}" = "1" ]; then
   exit 0
 fi
@@ -13,9 +23,6 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.volta/bin:$HOME/.fnm/curren
 for d in $HOME/.nvm/versions/node/*/bin(N) /opt/homebrew/opt/node*/bin(N) /usr/local/opt/node*/bin(N); do
   [ -d "$d" ] && export PATH="$d:$PATH"
 done
-
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
 
 # If package.json version is already modified in the staged commit, do not bump again
 if git diff --cached -U0 -- package.json | grep -q '^[+-][[:space:]]*"version"'; then
