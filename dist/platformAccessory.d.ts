@@ -42,8 +42,7 @@ export declare function isExplicitlyNamed(rawName?: string): boolean;
  * The ONLY accessory exposed to HomeKit.
  *
  * Exposes:
- * - Service.Television (`AUDIO_RECEIVER`): Power (WoL / Standby), Input Source selector, and Control Center Remote
- * - Service.TelevisionSpeaker: Hardware volume rocker in iOS Control Center Remote when Trinnov is selected
+ * - Service.Television (`AUDIO_RECEIVER`): Power (WoL / Standby) and Input Source selector
  * - Service.InputSource: Explicitly named Trinnov Profiles (unnamed profiles are ignored)
  * - In-Room Volume Slider (`Service.Fan` or `Service.Lightbulb`) & Explicitly Named Preset switches on the same Receiver accessory
  */
@@ -53,7 +52,6 @@ export declare class TrinnovReceiverAccessory {
     private readonly client;
     private readonly deviceConfig;
     private tvService;
-    private speakerService;
     private volumeSliderService?;
     private muteSwitchService?;
     private bypassSwitchService?;
@@ -65,6 +63,5 @@ export declare class TrinnovReceiverAccessory {
     private createOrUpdateSwitch;
     private setupVolumeSlider;
     private setupSwitches;
-    private handleRemoteKey;
     private subscribeClientEvents;
 }

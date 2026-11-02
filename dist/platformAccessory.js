@@ -43,8 +43,7 @@ function isExplicitlyNamed(rawName) {
  * The ONLY accessory exposed to HomeKit.
  *
  * Exposes:
- * - Service.Television (`AUDIO_RECEIVER`): Power (WoL / Standby), Input Source selector, and Control Center Remote
- * - Service.TelevisionSpeaker: Hardware volume rocker in iOS Control Center Remote when Trinnov is selected
+ * - Service.Television (`AUDIO_RECEIVER`): Power (WoL / Standby) and Input Source selector
  * - Service.InputSource: Explicitly named Trinnov Profiles (unnamed profiles are ignored)
  * - In-Room Volume Slider (`Service.Fan` or `Service.Lightbulb`) & Explicitly Named Preset switches on the same Receiver accessory
  */
@@ -54,7 +53,6 @@ class TrinnovReceiverAccessory {
     client;
     deviceConfig;
     tvService;
-    speakerService;
     volumeSliderService;
     muteSwitchService;
     bypassSwitchService;
@@ -110,63 +108,14 @@ class TrinnovReceiverAccessory {
         this.tvService
             .getCharacteristic(Characteristic.RemoteKey)
             .onSet((value) => {
-            this.platform.log.info(`[${cleanName}] HomeKit RemoteKey pressed -> ${value}`);
-            this.handleRemoteKey(Number(value));
+            this.platform.log.debug(`[${cleanName}] HomeKit RemoteKey pressed -> ${value} (volume control via remote disabled)`);
         });
-        // 3. Television Speaker Service (for iOS Control Center Remote when Trinnov is selected)
-        const speakerName = sanitizeHomeKitName(`${cleanName} Speaker`, 'Altitude Speaker');
-        let speakerSvc = this.accessory.getService(Service.TelevisionSpeaker);
-        if (!speakerSvc) {
-            speakerSvc = new Service.TelevisionSpeaker(speakerName, 'altitude-speaker');
-            speakerSvc.addOptionalCharacteristic(Characteristic.Active);
-            speakerSvc.addOptionalCharacteristic(Characteristic.VolumeControlType);
-            speakerSvc.addOptionalCharacteristic(Characteristic.VolumeSelector);
-            speakerSvc.addOptionalCharacteristic(Characteristic.Volume);
-            speakerSvc.setCharacteristic(Characteristic.Name, speakerName);
-            speakerSvc.setCharacteristic(Characteristic.Active, Characteristic.Active.ACTIVE);
-            speakerSvc.setCharacteristic(Characteristic.VolumeControlType, Characteristic.VolumeControlType.ABSOLUTE);
-            this.accessory.addService(speakerSvc);
+        // 3. Remove any legacy TelevisionSpeaker service so Apple TV Remote does not control volume
+        const existingSpeaker = this.accessory.getService(Service.TelevisionSpeaker);
+        if (existingSpeaker) {
+            this.tvService.removeLinkedService(existingSpeaker);
+            this.accessory.removeService(existingSpeaker);
         }
-        else {
-            speakerSvc
-                .setCharacteristic(Characteristic.Name, speakerName)
-                .setCharacteristic(Characteristic.Active, Characteristic.Active.ACTIVE)
-                .setCharacteristic(Characteristic.VolumeControlType, Characteristic.VolumeControlType.ABSOLUTE);
-        }
-        this.speakerService = speakerSvc;
-        this.speakerService
-            .getCharacteristic(Characteristic.Active)
-            .onGet(() => Characteristic.Active.ACTIVE)
-            .onSet(() => {
-            // Keep speaker service active for iOS Remote
-        });
-        this.speakerService
-            .getCharacteristic(Characteristic.Mute)
-            .onGet(() => this.client.state.mute)
-            .onSet((value) => {
-            this.platform.log.info(`[${cleanName}] HomeKit Speaker Mute -> ${Boolean(value)}`);
-            this.client.setMute(Boolean(value));
-        });
-        this.speakerService
-            .getCharacteristic(Characteristic.VolumeSelector)
-            .onSet((value) => {
-            const dir = value === Characteristic.VolumeSelector.INCREMENT ? '+1.0 dB (UP)' : '-1.0 dB (DOWN)';
-            this.platform.log.info(`[${cleanName}] HomeKit Remote VolumeSelector -> ${dir}`);
-            if (value === Characteristic.VolumeSelector.INCREMENT) {
-                this.client.adjustVolumeDb(1.0);
-            }
-            else if (value === Characteristic.VolumeSelector.DECREMENT) {
-                this.client.adjustVolumeDb(-1.0);
-            }
-        });
-        this.speakerService
-            .getCharacteristic(Characteristic.Volume)
-            .onGet(() => this.client.dbToPercentage(this.client.state.volume))
-            .onSet((value) => {
-            this.platform.log.info(`[${cleanName}] HomeKit Speaker Volume -> ${value}%`);
-            this.client.setVolumePercentage(Number(value));
-        });
-        this.tvService.addLinkedService(this.speakerService);
         // 4. Explicitly Named Input Sources (Profiles) in the Receiver's Input Picker
         this.setupInputSources();
         // 5. In-Room Volume Slider & Named Preset Switches on the Receiver Accessory
@@ -391,34 +340,6 @@ class TrinnovReceiverAccessory {
             this.presetSwitchServices.set(preset.id, pService);
         }
     }
-    handleRemoteKey(key) {
-        const { Characteristic } = this.platform;
-        switch (key) {
-            case Characteristic.RemoteKey.REWIND:
-                this.client.adjustVolumeDb(-2.0);
-                break;
-            case Characteristic.RemoteKey.FAST_FORWARD:
-                this.client.adjustVolumeDb(2.0);
-                break;
-            case Characteristic.RemoteKey.NEXT_TRACK:
-            case Characteristic.RemoteKey.ARROW_UP:
-                this.client.adjustVolumeDb(1.0);
-                break;
-            case Characteristic.RemoteKey.PREVIOUS_TRACK:
-            case Characteristic.RemoteKey.ARROW_DOWN:
-                this.client.adjustVolumeDb(-1.0);
-                break;
-            case Characteristic.RemoteKey.PLAY_PAUSE:
-            case Characteristic.RemoteKey.SELECT:
-                this.client.toggleMute();
-                break;
-            case Characteristic.RemoteKey.INFORMATION:
-                this.client.sendRaw('send_volume');
-                break;
-            default:
-                break;
-        }
-    }
     subscribeClientEvents() {
         const { Characteristic } = this.platform;
         this.client.on('powerChange', (power) => {
@@ -428,7 +349,6 @@ class TrinnovReceiverAccessory {
             }
         });
         this.client.on('volumeChange', (_db, percent) => {
-            this.speakerService.updateCharacteristic(Characteristic.Volume, percent);
             if (this.volumeSliderService) {
                 if (this.volumeSliderService.testCharacteristic(Characteristic.RotationSpeed)) {
                     this.volumeSliderService.updateCharacteristic(Characteristic.RotationSpeed, percent);
@@ -439,7 +359,6 @@ class TrinnovReceiverAccessory {
             }
         });
         this.client.on('muteChange', (muted) => {
-            this.speakerService.updateCharacteristic(Characteristic.Mute, muted);
             if (this.muteSwitchService) {
                 this.muteSwitchService.updateCharacteristic(Characteristic.On, muted);
             }

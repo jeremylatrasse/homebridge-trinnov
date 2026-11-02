@@ -16,10 +16,19 @@ TSC := ./node_modules/.bin/tsc
 SRC_DIR := src
 DIST_DIR := dist
 
-.PHONY: all build compile check typecheck watch test clean distclean rebuild install bump release help
+.PHONY: all build compile check typecheck watch test clean distclean rebuild install hooks bump release help
 
-## Default target: compile TypeScript sources
-all: build
+## Default target: configure git hooks and compile TypeScript sources
+all: hooks build
+
+## Install local Git hooks so version automatically increments when changes are committed/pushed
+hooks:
+	@if [ -d ".git" ] && [ -f ".githooks/pre-commit" ]; then \
+		chmod +x .githooks/pre-commit; \
+		cp .githooks/pre-commit .git/hooks/pre-commit; \
+		chmod +x .git/hooks/pre-commit; \
+		git config core.hooksPath .githooks 2>/dev/null || true; \
+	fi
 
 ## Install npm dependencies if node_modules/.bin/tsc is missing
 $(TSC):
@@ -29,11 +38,11 @@ $(TSC):
 	fi
 
 ## Install dependencies explicitly
-install:
+install: hooks
 	@$(ENV_SETUP); npm install
 
 ## Compile TypeScript to JavaScript & type declarations in dist/
-build: $(TSC)
+build: hooks $(TSC)
 	@echo "Building TypeScript sources..."
 	@$(ENV_SETUP); node $(TSC) -p tsconfig.json --pretty false
 	@echo "TypeScript build complete -> $(DIST_DIR)/"
@@ -78,7 +87,8 @@ rebuild: clean build
 ## Show available Makefile targets
 help:
 	@echo "Available targets:"
-	@echo "  make          (or make build)     Compile TypeScript in src/ to dist/"
+	@echo "  make          (or make build)     Compile TypeScript in src/ to dist/ and install git hooks"
+	@echo "  make hooks                        Install git hooks for automatic version bumping"
 	@echo "  make bump                         Increment patch version in package.json"
 	@echo "  make release                      Bump patch version, build dist/, and run tests"
 	@echo "  make check    (or make typecheck) Run TypeScript type-checking (--noEmit)"
