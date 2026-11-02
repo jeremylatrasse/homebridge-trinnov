@@ -24,22 +24,27 @@ A dynamic platform plugin for [Homebridge](https://homebridge.io) that gives you
 
 ## Installation
 
-### Option 1: Install Directly from GitHub (Homebridge Terminal / SSH)
+### Option 1: Install Directly from GitHub (No Git Prep Needed)
 
-In the **Homebridge UI** (open the top-right menu → **Terminal**) or via SSH on your Homebridge server, run:
+Because `dist/` is pre-compiled and committed in the repository, installing via the **GitHub tarball URL** is the fastest and most reliable method (it skips `pacote` git dependency preparation entirely):
 
 ```bash
-# 1. If using Homebridge UI Terminal or hb-service (Linux / Raspberry Pi / Homebridge OS):
-#    Install into the Homebridge storage/plugin directory (/var/lib/homebridge):
-cd /var/lib/homebridge && npm install git+https://github.com/jeremylatrasse/homebridge-trinnov.git
+# 1. Install globally (macOS Homebrew / Linux / Homebridge UI Terminal):
+npm install -g https://github.com/jeremylatrasse/homebridge-trinnov/tarball/main
 
-# 2. Or if Homebridge uses global node_modules (macOS / manual global install):
-sudo npm install -g git+https://github.com/jeremylatrasse/homebridge-trinnov.git
+# 2. Or if your Homebridge instance uses a local plugin directory (e.g. /var/lib/homebridge):
+cd /var/lib/homebridge && npm install https://github.com/jeremylatrasse/homebridge-trinnov/tarball/main
 ```
 
-> **Note:** `hb-service add` only accepts published npm package names and rejects `git+https://...` URLs. Always use `npm install` as shown above when installing directly from GitHub, then restart Homebridge.
+### Option 2: Install Locally from this Clone (macOS Development / Local Host)
 
-### Option 2: Install from npm (Once Published)
+If Homebridge is running on the same Mac as this repository (`/Users/avalo/Documents/homebridge-trinnov`), you can link or install it directly without touching GitHub:
+
+```bash
+npm install -g /Users/avalo/Documents/homebridge-trinnov
+```
+
+### Option 3: Install from npm (Once Published)
 
 ```bash
 hb-service add homebridge-trinnov-altitude
