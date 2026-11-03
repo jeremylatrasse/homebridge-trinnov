@@ -46,14 +46,9 @@ export declare class TrinnovClient extends EventEmitter {
     private pingIntervalTimer?;
     private transitionTimer?;
     private powerOffDisconnectTimer?;
-    private connectTimeoutTimer?;
     private awaitingResponse;
     private lastDataReceivedAt;
     private lastProbeSentAt;
-    private heartbeatActive;
-    private expectedPowerState;
-    private heartbeatLogState;
-    private onCommandSentAt;
     readonly config: Required<TrinnovClientConfig>;
     state: TrinnovState;
     constructor(config: TrinnovClientConfig, log: LoggerLike);
@@ -72,9 +67,6 @@ export declare class TrinnovClient extends EventEmitter {
      * starts or stops responding.
      */
     private startResponsivenessPolling;
-    private beginHeartbeatProbing;
-    private recordHeartbeatSuccess;
-    private recordHeartbeatFailure;
     private connect;
     private disconnect;
     private handleSocketClose;
@@ -90,16 +82,9 @@ export declare class TrinnovClient extends EventEmitter {
      */
     powerOn(): Promise<void>;
     /**
-     * Sends the secured power off command to Trinnov Altitude.
-     * If the primary socket is connected, writes to it.
-     * If the primary socket is disconnected, establishes a direct connection,
-     * performs the client handshake, sends the command, and flushes before closing.
-     */
-    sendPowerOffCommand(): Promise<void>;
-    /**
      * Power Off / Standby over TCP automation connection.
      */
-    powerOff(): Promise<void>;
+    powerOff(): void;
     /**
      * Set master volume in decibels (e.g. -35.5 dB)
      */

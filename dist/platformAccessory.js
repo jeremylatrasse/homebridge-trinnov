@@ -95,7 +95,7 @@ class TrinnovReceiverAccessory {
                 await this.client.powerOn();
             }
             else {
-                await this.client.powerOff();
+                this.client.powerOff();
             }
         });
         this.tvService
