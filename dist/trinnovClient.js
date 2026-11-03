@@ -262,12 +262,19 @@ class TrinnovClient extends events_1.EventEmitter {
      * Returns a detailed status object and never falsely claims standby if any layer answers.
      */
     async probeUnitReachability(timeoutMs = 1500) {
-        const pingPromise = this.pingHost(timeoutMs);
-        const telnetPromise = (this.socket && !this.socket.destroyed)
-            ? Promise.resolve(true)
-            : this.checkTcpPort(this.config.port, timeoutMs);
-        const httpPromise = this.checkTcpPort(80, timeoutMs);
-        const [ping, telnet, http] = await Promise.all([pingPromise, telnetPromise, httpPromise]);
+        const [ping, telnet, http] = await Promise.all([
+            this.pingHost(timeoutMs),
+            this.checkTcpPort(this.config.port, timeoutMs),
+            this.checkTcpPort(80, timeoutMs),
+        ]);
+        // If both ping and HTTP are silent, the Trinnov processor OS is offline.
+        // Any remaining socket in memory is a half-open ghost connection from before standby.
+        if (!ping && !http) {
+            if (this.socket) {
+                this.disconnect();
+            }
+            return { responding: false, ping: false, telnet: false, http: false };
+        }
         const responding = ping || telnet || http;
         return { responding, ping, telnet, http };
     }

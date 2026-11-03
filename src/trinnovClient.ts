@@ -292,13 +292,21 @@ export class TrinnovClient extends EventEmitter {
     telnet: boolean;
     http: boolean;
   }> {
-    const pingPromise = this.pingHost(timeoutMs);
-    const telnetPromise = (this.socket && !this.socket.destroyed)
-      ? Promise.resolve(true)
-      : this.checkTcpPort(this.config.port, timeoutMs);
-    const httpPromise = this.checkTcpPort(80, timeoutMs);
+    const [ping, telnet, http] = await Promise.all([
+      this.pingHost(timeoutMs),
+      this.checkTcpPort(this.config.port, timeoutMs),
+      this.checkTcpPort(80, timeoutMs),
+    ]);
 
-    const [ping, telnet, http] = await Promise.all([pingPromise, telnetPromise, httpPromise]);
+    // If both ping and HTTP are silent, the Trinnov processor OS is offline.
+    // Any remaining socket in memory is a half-open ghost connection from before standby.
+    if (!ping && !http) {
+      if (this.socket) {
+        this.disconnect();
+      }
+      return { responding: false, ping: false, telnet: false, http: false };
+    }
+
     const responding = ping || telnet || http;
     return { responding, ping, telnet, http };
   }
