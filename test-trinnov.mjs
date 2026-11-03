@@ -81,7 +81,54 @@ assert.strictEqual(isExplicitlyNamed('Kaleidescape'), true);
 assert.strictEqual(client.state.power, true, 'Power state should become true once unit responds with data');
 client.stop();
 
-// Test 6: config.schema.json validation checks for Homebridge UI compatibility
+// Test 6: Heartbeat state machine (starts only after ON command; single log per transition)
+const infoMessages = [];
+const warnMessages = [];
+const standbyClient = new TrinnovClient(
+  {
+    host: '172.16.1.66',
+    port: 44100,
+    heartbeatInterval: 1,
+  },
+  {
+    info: (msg) => infoMessages.push(msg),
+    warn: (msg) => warnMessages.push(msg),
+    error: () => {},
+    debug: () => {},
+  },
+);
+standbyClient.start();
+assert.strictEqual(standbyClient['heartbeatActive'], false, 'Heartbeat must not start before ON command');
+assert.strictEqual(standbyClient.isConnected(), false, 'Standby client must not report connected while off');
+assert.strictEqual(infoMessages.length, 0);
+assert.strictEqual(warnMessages.length, 0);
+
+// Simulate ON command starting heartbeat probing and receiving multiple heartbeat replies
+standbyClient['heartbeatActive'] = true;
+standbyClient['expectedPowerState'] = 'on';
+standbyClient['heartbeatLogState'] = 'awaiting-success';
+standbyClient['handleIncomingData']('VOLUME -35.0\nMUTE 0\nVOLUME -34.0\n');
+assert.strictEqual(infoMessages.length, 1, 'Should write only one log entry for successful heartbeat in ON state');
+
+// Simulate failed heartbeat in ON state -> logs once, then stays quiet
+standbyClient['recordHeartbeatFailure']();
+standbyClient['recordHeartbeatFailure']();
+standbyClient['recordHeartbeatFailure']();
+assert.strictEqual(warnMessages.length, 1, 'Should write only one log entry for failed heartbeat in ON state');
+
+// Simulate OFF command -> logs only one failed heartbeat in expected OFF state, then stays quiet
+standbyClient['expectedPowerState'] = 'off';
+standbyClient['heartbeatLogState'] = 'awaiting-expected-failure';
+standbyClient['recordHeartbeatFailure']();
+standbyClient['recordHeartbeatFailure']();
+assert.strictEqual(infoMessages.length, 2, 'Should write only one log entry for failed heartbeat in expected OFF state');
+
+// Simulate unexpected state change while in OFF state -> logs once
+standbyClient['handleIncomingData']('VOLUME -30.0\nVOLUME -29.0\n');
+assert.strictEqual(infoMessages.length, 3, 'Should write only one log entry when unexpected state change is discovered');
+standbyClient.stop();
+
+// Test 7: config.schema.json validation checks for Homebridge UI compatibility
 const schemaJson = JSON.parse(readFileSync('./config.schema.json', 'utf8'));
 const deviceSchema = schemaJson.schema.properties.devices.items;
 assert.strictEqual(deviceSchema.properties.host.format, undefined, 'host must not have format:hostname which rejects IPv4 addresses in Homebridge UI');

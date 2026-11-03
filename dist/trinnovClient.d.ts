@@ -46,9 +46,14 @@ export declare class TrinnovClient extends EventEmitter {
     private pingIntervalTimer?;
     private transitionTimer?;
     private powerOffDisconnectTimer?;
+    private connectTimeoutTimer?;
     private awaitingResponse;
     private lastDataReceivedAt;
     private lastProbeSentAt;
+    private heartbeatActive;
+    private expectedPowerState;
+    private heartbeatLogState;
+    private onCommandSentAt;
     readonly config: Required<TrinnovClientConfig>;
     state: TrinnovState;
     constructor(config: TrinnovClientConfig, log: LoggerLike);
@@ -67,6 +72,9 @@ export declare class TrinnovClient extends EventEmitter {
      * starts or stops responding.
      */
     private startResponsivenessPolling;
+    private beginHeartbeatProbing;
+    private recordHeartbeatSuccess;
+    private recordHeartbeatFailure;
     private connect;
     private disconnect;
     private handleSocketClose;
