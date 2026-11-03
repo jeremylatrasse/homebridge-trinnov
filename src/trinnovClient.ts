@@ -181,7 +181,7 @@ export class TrinnovClient extends EventEmitter {
       probe.setTimeout(timeoutMs);
 
       probe.on('connect', () => {
-        probe.write(`id ${this.config.clientName}-probe\nsend_volume\n`);
+        probe.write(`id ${this.config.clientName}-probe\r\nsend_volume\r\n`);
       });
 
       probe.on('data', (chunk: Buffer) => {
@@ -223,12 +223,17 @@ export class TrinnovClient extends EventEmitter {
 
       const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
       if (Date.now() - startedAt > maxDurationMs) {
-        this.log.debug(`[${this.config.host}] Timed out after ${elapsedSec}s waiting for unit (${mode}).`);
+        if (mode === 'stop') {
+          this.log.warn(
+            `[${this.config.host}] Unit is still responding after ${elapsedSec}s; power-off command may have been ignored or rejected by processor.`,
+          );
+        } else {
+          this.log.debug(`[${this.config.host}] Timed out after ${elapsedSec}s waiting for unit (${mode}).`);
+        }
         if (this.transitionTimer) {
           clearInterval(this.transitionTimer);
           this.transitionTimer = undefined;
         }
-        this.recordHeartbeatFailure();
         return;
       }
 
@@ -620,7 +625,7 @@ export class TrinnovClient extends EventEmitter {
       return;
     }
     this.log.debug(`[Trinnov TX] ${command}`);
-    this.socket.write(`${command}\n`);
+    this.socket.write(`${command}\r\n`);
   }
 
   /**
@@ -667,16 +672,24 @@ export class TrinnovClient extends EventEmitter {
    */
   public sendPowerOffCommand(): Promise<void> {
     return new Promise((resolve) => {
-      const shutdownCmd = 'power_off_SECURED_FHZMCH48FE';
+      // Official Trinnov / JBL Synthesis Automation Protocol specifications require 'power off SECURED FHZMCH48FE' or 'power_off SECURED FHZMCH48FE' with CRLF
+      const shutdownCommands = [
+        'power off SECURED FHZMCH48FE',
+        'power_off SECURED FHZMCH48FE',
+        'power_off_SECURED_FHZMCH48FE',
+        'power_off',
+      ];
+      const payload = shutdownCommands.map((cmd) => `${cmd}\r\n`).join('');
+
       if (this.socket && !this.socket.destroyed && !this.isConnecting) {
-        this.log.debug(`[Trinnov TX] ${shutdownCmd}`);
-        this.socket.write(`${shutdownCmd}\n`, () => {
+        this.log.debug(`[Trinnov TX] Sending shutdown commands (CRLF):\n${shutdownCommands.join('\n')}`);
+        this.socket.write(`id ${this.config.clientName}\r\n${payload}`, () => {
           resolve();
         });
         return;
       }
 
-      this.log.debug(`[${this.config.host}] Connecting direct socket to send shutdown command...`);
+      this.log.debug(`[${this.config.host}] Connecting direct socket to send shutdown commands...`);
       const directSocket = new net.Socket();
       let settled = false;
 
@@ -693,10 +706,10 @@ export class TrinnovClient extends EventEmitter {
         }
       };
 
-      directSocket.setTimeout(4000);
+      directSocket.setTimeout(5000);
       directSocket.on('connect', () => {
-        directSocket.write(`id ${this.config.clientName}\n${shutdownCmd}\n`, () => {
-          setTimeout(finish, 500);
+        directSocket.write(`id ${this.config.clientName}\r\n${payload}`, () => {
+          setTimeout(finish, 800);
         });
       });
 
@@ -752,8 +765,7 @@ export class TrinnovClient extends EventEmitter {
     this.powerOffDisconnectTimer = setTimeout(() => {
       this.powerOffDisconnectTimer = undefined;
       this.disconnect();
-      this.recordHeartbeatFailure();
-    }, 1500);
+    }, 2500);
   }
 
   /**
