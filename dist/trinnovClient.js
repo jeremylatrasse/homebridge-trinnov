@@ -34,10 +34,67 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TrinnovClient = void 0;
+exports.validateTrinnovHost = validateTrinnovHost;
 const child_process_1 = require("child_process");
 const events_1 = require("events");
 const net = __importStar(require("net"));
 const dgram = __importStar(require("dgram"));
+/**
+ * Validates that an IPv4 address has exactly 4 octets between 0 and 255.
+ * Also permits standard RFC 1123 hostnames (e.g. altitude.local).
+ */
+function validateTrinnovHost(host) {
+    if (typeof host !== 'string' || !host.trim()) {
+        return { valid: false, reason: 'Host is empty or undefined.' };
+    }
+    const trimmed = host.trim();
+    // If host contains only digits and dots, it is an IPv4 address attempt
+    if (/^[0-9.]+$/.test(trimmed)) {
+        const octets = trimmed.split('.');
+        if (octets.length !== 4) {
+            return {
+                valid: false,
+                reason: `Invalid IPv4 address '${trimmed}': an IPv4 address must contain exactly 4 octets (found ${octets.length}). Example: 172.16.1.66`,
+            };
+        }
+        for (let i = 0; i < octets.length; i++) {
+            const octet = octets[i];
+            if (octet === '' || isNaN(Number(octet))) {
+                return {
+                    valid: false,
+                    reason: `Invalid IPv4 address '${trimmed}': octet #${i + 1} is empty or non-numeric.`,
+                };
+            }
+            const num = Number(octet);
+            if (num < 0 || num > 255) {
+                return {
+                    valid: false,
+                    reason: `Invalid IPv4 address '${trimmed}': octet #${i + 1} ('${octet}') is out of range 0-255.`,
+                };
+            }
+            if (octet.length > 1 && octet.startsWith('0')) {
+                return {
+                    valid: false,
+                    reason: `Invalid IPv4 address '${trimmed}': octet #${i + 1} ('${octet}') cannot have leading zeroes.`,
+                };
+            }
+        }
+        return { valid: true };
+    }
+    // Otherwise hostname / FQDN validation:
+    const parts = trimmed.split('.');
+    if (parts.some((p) => p.length === 0)) {
+        return { valid: false, reason: `Invalid hostname '${trimmed}': consecutive or trailing dots.` };
+    }
+    const lastPart = parts[parts.length - 1];
+    if (/^[0-9]+$/.test(lastPart)) {
+        return {
+            valid: false,
+            reason: `Invalid host '${trimmed}': looks like an incomplete IPv4 address with ${parts.length} octets. IPv4 addresses must have exactly 4 octets.`,
+        };
+    }
+    return { valid: true };
+}
 class TrinnovClient extends events_1.EventEmitter {
     log;
     socket = null;
@@ -76,8 +133,10 @@ class TrinnovClient extends events_1.EventEmitter {
             minVolumeDb: config.minVolumeDb !== undefined ? config.minVolumeDb : -90.0,
             maxVolumeDb: config.maxVolumeDb !== undefined ? config.maxVolumeDb : 0.0,
         };
-        if (/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(this.config.host)) {
-            this.log.warn(`[${this.config.host}] Configuration warning: IP '${this.config.host}' has only 3 octets (expected 4 octets like 172.16.1.66). Connections may fail if a subnet octet was omitted.`);
+        const validation = validateTrinnovHost(this.config.host);
+        if (!validation.valid) {
+            this.log.error(`[${this.config.host}] ${validation.reason}`);
+            throw new Error(`[TrinnovClient] ${validation.reason}`);
         }
     }
     start() {

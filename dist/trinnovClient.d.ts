@@ -35,6 +35,14 @@ export interface LoggerLike {
     error(message: string, ...parameters: unknown[]): void;
     debug(message: string, ...parameters: unknown[]): void;
 }
+/**
+ * Validates that an IPv4 address has exactly 4 octets between 0 and 255.
+ * Also permits standard RFC 1123 hostnames (e.g. altitude.local).
+ */
+export declare function validateTrinnovHost(host: string): {
+    valid: boolean;
+    reason?: string;
+};
 export declare class TrinnovClient extends EventEmitter {
     private readonly log;
     private socket;

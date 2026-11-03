@@ -71,6 +71,11 @@ class TrinnovAltitudePlatform {
                 this.log.warn(`Device #${index + 1} is missing IP / host. Skipping.`);
                 continue;
             }
+            const hostValidation = (0, trinnovClient_1.validateTrinnovHost)(deviceConfig.host);
+            if (!hostValidation.valid) {
+                this.log.error(`Device #${index + 1} (${deviceConfig.name || 'Trinnov'}): ${hostValidation.reason} Skipping.`);
+                continue;
+            }
             const deviceName = deviceConfig.name?.trim() || `Trinnov Altitude32`;
             const port = deviceConfig.port || 44100;
             this.log.info(`[${deviceName}] Setting up Receiver at ${deviceConfig.host}:${port}`);

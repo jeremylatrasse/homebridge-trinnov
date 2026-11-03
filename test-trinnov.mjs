@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { TrinnovClient } from './dist/trinnovClient.js';
+import { TrinnovClient, validateTrinnovHost } from './dist/trinnovClient.js';
 import { sanitizeHomeKitName, isExplicitlyNamed } from './dist/platformAccessory.js';
 
 const mockLogger = {
@@ -111,5 +111,31 @@ assert.strictEqual(typeof reachability.telnet, 'boolean');
 assert.strictEqual(typeof reachability.http, 'boolean');
 assert.strictEqual(reachability.responding, true, 'Reachability responding should be true on localhost');
 localClient.stop();
+
+// Test 8: Strict 4-octet IPv4 validation and schema pattern checks
+assert.strictEqual(validateTrinnovHost('172.16.66').valid, false, '172.16.66 has 3 octets and must be rejected');
+assert.strictEqual(validateTrinnovHost('10.0.0').valid, false, '10.0.0 has 3 octets and must be rejected');
+assert.strictEqual(validateTrinnovHost('172.16.1.1.1').valid, false, '5-octet IP must be rejected');
+assert.strictEqual(validateTrinnovHost('256.1.1.1').valid, false, 'out-of-range octet must be rejected');
+assert.strictEqual(validateTrinnovHost('172.16.1.66').valid, true, '172.16.1.66 has 4 valid octets and must be accepted');
+assert.strictEqual(validateTrinnovHost('trinnov.local').valid, true, 'valid hostname must be accepted');
+
+// Verify config.schema.json requires host and enforces 4-octet pattern
+const hostPattern = new RegExp(deviceSchema.properties.host.pattern);
+assert.strictEqual(hostPattern.test('172.16.66'), false, 'Schema pattern must reject 3-octet IPv4 172.16.66');
+assert.strictEqual(hostPattern.test('10.0.0'), false, 'Schema pattern must reject 3-octet IPv4 10.0.0');
+assert.strictEqual(hostPattern.test('256.1.1.1'), false, 'Schema pattern must reject out of range IPv4');
+assert.strictEqual(hostPattern.test('172.16.1.66'), true, 'Schema pattern must accept 4-octet IPv4 172.16.1.66');
+assert.strictEqual(hostPattern.test('trinnov.local'), true, 'Schema pattern must accept hostname');
+assert.ok(deviceSchema.required && deviceSchema.required.includes('host'), 'Schema must require host');
+
+// Verify TrinnovClient constructor throws if an invalid 3-octet IP is supplied
+assert.throws(
+  () => {
+    new TrinnovClient({ host: '172.16.66' }, mockLogger);
+  },
+  /Invalid IPv4 address/,
+  'Constructor must reject 3-octet IP',
+);
 
 console.log('✅ All tests passed successfully!');

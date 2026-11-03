@@ -10,7 +10,7 @@ import {
 } from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME, PLUGIN_VERSION } from './settings';
-import { TrinnovClient } from './trinnovClient';
+import { TrinnovClient, validateTrinnovHost } from './trinnovClient';
 import {
   TrinnovReceiverAccessory,
   TrinnovDeviceConfig,
@@ -95,6 +95,12 @@ export class TrinnovAltitudePlatform implements DynamicPlatformPlugin {
     for (const [index, deviceConfig] of devices.entries()) {
       if (!deviceConfig.host) {
         this.log.warn(`Device #${index + 1} is missing IP / host. Skipping.`);
+        continue;
+      }
+
+      const hostValidation = validateTrinnovHost(deviceConfig.host);
+      if (!hostValidation.valid) {
+        this.log.error(`Device #${index + 1} (${deviceConfig.name || 'Trinnov'}): ${hostValidation.reason} Skipping.`);
         continue;
       }
 
