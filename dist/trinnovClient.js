@@ -600,12 +600,6 @@ class TrinnovClient extends events_1.EventEmitter {
             clearTimeout(this.powerOffDisconnectTimer);
             this.powerOffDisconnectTimer = undefined;
         }
-        const alreadyResponding = await this.checkIfResponding(1500);
-        if (alreadyResponding) {
-            this.log.info(`[${this.config.host}] Unit is already responding — connecting immediately.`);
-            this.connect();
-            return;
-        }
         if (this.config.mac) {
             try {
                 await this.sendWakeOnLan(this.config.mac);
@@ -617,7 +611,7 @@ class TrinnovClient extends events_1.EventEmitter {
             }
         }
         else {
-            this.log.warn(`[${this.config.host}] No MAC address provided for Wake-on-LAN; cannot wake sleeping processor.`);
+            this.log.warn(`[${this.config.host}] No MAC address provided in Homebridge config for Wake-on-LAN; sleeping processor cannot wake.`);
         }
         // Attempt connecting immediately and poll until the unit starts responding
         this.connect();
@@ -775,22 +769,35 @@ class TrinnovClient extends events_1.EventEmitter {
             }
             const socket = dgram.createSocket('udp4');
             socket.once('error', (err) => {
-                socket.close();
+                try {
+                    socket.close();
+                }
+                catch {
+                    // ignore
+                }
                 reject(err);
             });
             socket.bind(() => {
-                socket.setBroadcast(true);
-                // Send to standard WoL broadcast port 9 and port 7
-                socket.send(magicPacket, 0, magicPacket.length, 9, '255.255.255.255', (err9) => {
-                    socket.send(magicPacket, 0, magicPacket.length, 7, '255.255.255.255', (err7) => {
+                try {
+                    socket.setBroadcast(true);
+                }
+                catch {
+                    // ignore
+                }
+                // Send Wake-on-LAN magic packet to standard WoL broadcast port 9
+                socket.send(magicPacket, 0, magicPacket.length, 9, '255.255.255.255', (err) => {
+                    try {
                         socket.close();
-                        if (err9 || err7) {
-                            reject(err9 || err7);
-                        }
-                        else {
-                            resolve();
-                        }
-                    });
+                    }
+                    catch {
+                        // ignore
+                    }
+                    if (err) {
+                        reject(err);
+                    }
+                    else {
+                        resolve();
+                    }
                 });
             });
         });

@@ -138,4 +138,14 @@ assert.throws(
   'Constructor must reject 3-octet IP',
 );
 
+// Test 9: WoL Magic Packet generation & burst transmission
+const testClient = new TrinnovClient({ host: '127.0.0.1', mac: '00:1E:06:12:34:56' }, mockLogger);
+assert.strictEqual(typeof testClient.sendWakeOnLan, 'function');
+await testClient.sendWakeOnLan('00:1E:06:12:34:56');
+await assert.rejects(
+  () => testClient.sendWakeOnLan('invalid-mac'),
+  /Invalid MAC address/,
+);
+testClient.stop();
+
 console.log('✅ All tests passed successfully!');

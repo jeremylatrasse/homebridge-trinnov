@@ -145,5 +145,5 @@ export declare class TrinnovClient extends EventEmitter {
     setBypass(bypass: boolean): void;
     dbToPercentage(db: number): number;
     percentageToDb(percent: number): number;
-    private sendWakeOnLan;
+    sendWakeOnLan(macAddress: string): Promise<void>;
 }
