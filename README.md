@@ -24,16 +24,16 @@ A dynamic platform plugin for [Homebridge](https://homebridge.io) that gives you
 
 ## Installation
 
-### Option 1: Install Directly from GitHub (No Git Prep Needed)
+### Option 1: Install Directly from GitHub (No Local Build Required)
 
-Because `dist/` is pre-compiled and committed in the repository, installing via the **GitHub tarball URL** is the fastest and most reliable method (it skips `pacote` git dependency preparation entirely):
+Because `dist/` is pre-compiled and committed in the repository and `package.json` avoids git preparation/build hooks, `npm` installs the pre-built tarball directly from GitHub without installing `devDependencies` or running a local build on the target machine:
 
 ```bash
 # 1. Install globally (macOS Homebrew / Linux / Homebridge UI Terminal):
-npm install -g https://github.com/jeremylatrasse/homebridge-trinnov/tarball/main
+npm install -g https://github.com/jeremylatrasse/homebridge-trinnov --verbose
 
 # 2. Or if your Homebridge instance uses a local plugin directory (e.g. /var/lib/homebridge):
-cd /var/lib/homebridge && npm install https://github.com/jeremylatrasse/homebridge-trinnov/tarball/main
+cd /var/lib/homebridge && npm install https://github.com/jeremylatrasse/homebridge-trinnov --verbose
 ```
 
 ### Option 2: Install Locally from this Clone (macOS Development / Local Host)
