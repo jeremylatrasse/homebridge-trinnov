@@ -128,7 +128,7 @@ export class TrinnovReceiverAccessory {
         if (targetActive) {
           await this.client.powerOn();
         } else {
-          this.client.powerOff();
+          await this.client.powerOff();
         }
       });
 

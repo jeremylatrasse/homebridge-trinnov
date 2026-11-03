@@ -382,7 +382,7 @@ class TrinnovClient extends events_1.EventEmitter {
             this.emit('powerChange', false);
         }
         this.emit('disconnected');
-        if (!this.isDestroyed && this.heartbeatActive) {
+        if (!this.isDestroyed && this.heartbeatActive && this.expectedPowerState === 'on') {
             if (this.reconnectTimer) {
                 clearTimeout(this.reconnectTimer);
             }
@@ -402,7 +402,7 @@ class TrinnovClient extends events_1.EventEmitter {
             }
             if (!this.isConnected()) {
                 this.recordHeartbeatFailure();
-                if (!this.isConnecting && !this.socket) {
+                if (!this.isConnecting && !this.socket && this.expectedPowerState === 'on') {
                     this.connect();
                 }
                 return;
@@ -423,6 +423,10 @@ class TrinnovClient extends events_1.EventEmitter {
         this.lastDataReceivedAt = Date.now();
         if (this.awaitingResponse) {
             this.awaitingResponse = false;
+        }
+        // Ignore in-flight responses while waiting for the unit to enter standby
+        if (this.expectedPowerState === 'off' && this.heartbeatLogState === 'awaiting-expected-failure') {
+            return;
         }
         this.recordHeartbeatSuccess();
         if (!this.state.power) {
@@ -580,9 +584,59 @@ class TrinnovClient extends events_1.EventEmitter {
         this.startResponsivenessPolling('start');
     }
     /**
+     * Sends the secured power off command to Trinnov Altitude.
+     * If the primary socket is connected, writes to it.
+     * If the primary socket is disconnected, establishes a direct connection,
+     * performs the client handshake, sends the command, and flushes before closing.
+     */
+    sendPowerOffCommand() {
+        return new Promise((resolve) => {
+            const shutdownCmd = 'power_off_SECURED_FHZMCH48FE';
+            if (this.socket && !this.socket.destroyed && !this.isConnecting) {
+                this.log.debug(`[Trinnov TX] ${shutdownCmd}`);
+                this.socket.write(`${shutdownCmd}\n`, () => {
+                    resolve();
+                });
+                return;
+            }
+            this.log.debug(`[${this.config.host}] Connecting direct socket to send shutdown command...`);
+            const directSocket = new net.Socket();
+            let settled = false;
+            const finish = () => {
+                if (!settled) {
+                    settled = true;
+                    try {
+                        directSocket.removeAllListeners();
+                        directSocket.destroy();
+                    }
+                    catch {
+                        // ignore
+                    }
+                    resolve();
+                }
+            };
+            directSocket.setTimeout(4000);
+            directSocket.on('connect', () => {
+                directSocket.write(`id ${this.config.clientName}\n${shutdownCmd}\n`, () => {
+                    setTimeout(finish, 500);
+                });
+            });
+            directSocket.on('timeout', () => {
+                this.log.debug(`[${this.config.host}] Direct shutdown socket timeout`);
+                finish();
+            });
+            directSocket.on('error', (err) => {
+                this.log.debug(`[${this.config.host}] Direct shutdown socket error: ${err.message}`);
+                finish();
+            });
+            directSocket.on('close', () => finish());
+            directSocket.connect(this.config.port, this.config.host);
+        });
+    }
+    /**
      * Power Off / Standby over TCP automation connection.
      */
-    powerOff() {
+    async powerOff() {
         this.log.debug(`[${this.config.host}] Sending power off / standby to Altitude...`);
         this.heartbeatActive = true;
         this.expectedPowerState = 'off';
@@ -590,17 +644,29 @@ class TrinnovClient extends events_1.EventEmitter {
         if (!this.heartbeatTimer) {
             this.startHeartbeat();
         }
-        // Both standard power_off and token supported by various firmware
-        this.sendRaw('power_off');
-        this.sendRaw('power_off_SECURED_FHZMCH48FE');
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = undefined;
+        }
+        if (this.transitionTimer) {
+            clearInterval(this.transitionTimer);
+            this.transitionTimer = undefined;
+        }
+        const prevPower = this.state.power;
+        this.state.power = false;
+        if (prevPower) {
+            this.emit('powerChange', false);
+        }
+        await this.sendPowerOffCommand();
         // Poll to verify when the unit stops responding and enters standby
-        this.startResponsivenessPolling('stop', 30000, 1500);
+        this.startResponsivenessPolling('stop', 45000, 2000);
         if (this.powerOffDisconnectTimer) {
             clearTimeout(this.powerOffDisconnectTimer);
         }
         this.powerOffDisconnectTimer = setTimeout(() => {
             this.powerOffDisconnectTimer = undefined;
             this.disconnect();
+            this.recordHeartbeatFailure();
         }, 1500);
     }
     /**

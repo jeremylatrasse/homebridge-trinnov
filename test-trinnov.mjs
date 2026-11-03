@@ -116,9 +116,16 @@ standbyClient['recordHeartbeatFailure']();
 standbyClient['recordHeartbeatFailure']();
 assert.strictEqual(warnMessages.length, 1, 'Should write only one log entry for failed heartbeat in ON state');
 
-// Simulate OFF command -> logs only one failed heartbeat in expected OFF state, then stays quiet
+// Simulate OFF command -> in-flight data during shutdown is ignored, then standby confirmed
 standbyClient['expectedPowerState'] = 'off';
 standbyClient['heartbeatLogState'] = 'awaiting-expected-failure';
+standbyClient.state.power = false;
+
+// In-flight data arriving while awaiting-expected-failure must not resurrect power or log unexpected state change
+standbyClient['handleIncomingData']('VOLUME -34.0\n');
+assert.strictEqual(infoMessages.length, 1, 'In-flight data during shutdown must not trigger unexpected state change');
+assert.strictEqual(standbyClient.state.power, false, 'Power must remain false during shutdown');
+
 standbyClient['recordHeartbeatFailure']();
 standbyClient['recordHeartbeatFailure']();
 assert.strictEqual(infoMessages.length, 2, 'Should write only one log entry for failed heartbeat in expected OFF state');
@@ -126,7 +133,35 @@ assert.strictEqual(infoMessages.length, 2, 'Should write only one log entry for 
 // Simulate unexpected state change while in OFF state -> logs once
 standbyClient['handleIncomingData']('VOLUME -30.0\nVOLUME -29.0\n');
 assert.strictEqual(infoMessages.length, 3, 'Should write only one log entry when unexpected state change is discovered');
+assert.strictEqual(standbyClient.state.power, true, 'Power should be restored when unexpected data arrives in standby');
 standbyClient.stop();
+
+// Test 8: powerOff() method behavior and command dispatch
+const poClient = new TrinnovClient(
+  {
+    host: '127.0.0.1',
+    port: 44100,
+  },
+  mockLogger,
+);
+poClient.state.power = true;
+let powerChangedTo = null;
+poClient.on('powerChange', (p) => {
+  powerChangedTo = p;
+});
+
+let sendPowerOffCommandCalled = false;
+poClient.sendPowerOffCommand = async () => {
+  sendPowerOffCommandCalled = true;
+};
+
+await poClient.powerOff();
+assert.strictEqual(poClient.state.power, false, 'powerOff must immediately set power to false');
+assert.strictEqual(powerChangedTo, false, 'powerOff must emit powerChange false');
+assert.strictEqual(poClient['expectedPowerState'], 'off', 'powerOff must set expectedPowerState to off');
+assert.strictEqual(poClient['heartbeatLogState'], 'awaiting-expected-failure', 'powerOff must set heartbeatLogState to awaiting-expected-failure');
+assert.strictEqual(sendPowerOffCommandCalled, true, 'powerOff must invoke sendPowerOffCommand');
+poClient.stop();
 
 // Test 7: config.schema.json validation checks for Homebridge UI compatibility
 const schemaJson = JSON.parse(readFileSync('./config.schema.json', 'utf8'));

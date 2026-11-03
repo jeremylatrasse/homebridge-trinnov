@@ -90,9 +90,16 @@ export declare class TrinnovClient extends EventEmitter {
      */
     powerOn(): Promise<void>;
     /**
+     * Sends the secured power off command to Trinnov Altitude.
+     * If the primary socket is connected, writes to it.
+     * If the primary socket is disconnected, establishes a direct connection,
+     * performs the client handshake, sends the command, and flushes before closing.
+     */
+    sendPowerOffCommand(): Promise<void>;
+    /**
      * Power Off / Standby over TCP automation connection.
      */
-    powerOff(): void;
+    powerOff(): Promise<void>;
     /**
      * Set master volume in decibels (e.g. -35.5 dB)
      */
