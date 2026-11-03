@@ -104,6 +104,12 @@ const responding = await localClient.checkIfResponding(1000);
 assert.strictEqual(responding, true, 'checkIfResponding should report true if ping succeeds');
 
 assert.strictEqual(typeof localClient.sendPowerOffCommand, 'function', 'sendPowerOffCommand should be a function');
+const reachability = await localClient.probeUnitReachability(1000);
+assert.strictEqual(typeof reachability.responding, 'boolean');
+assert.strictEqual(typeof reachability.ping, 'boolean');
+assert.strictEqual(typeof reachability.telnet, 'boolean');
+assert.strictEqual(typeof reachability.http, 'boolean');
+assert.strictEqual(reachability.responding, true, 'Reachability responding should be true on localhost');
 localClient.stop();
 
 console.log('✅ All tests passed successfully!');

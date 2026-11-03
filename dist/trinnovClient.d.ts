@@ -60,13 +60,20 @@ export declare class TrinnovClient extends EventEmitter {
      */
     pingHost(timeoutMs?: number): Promise<boolean>;
     /**
-     * Tests whether Trinnov telnet port (44100) connects and responds to command queries.
+     * Probes whether a TCP port (e.g. 44100 telnet or 80 http) connects.
+     * When Trinnov is in standby, the processor OS is completely shut down and all TCP ports reject/timeout.
      */
-    checkTelnetResponding(timeoutMs?: number): Promise<boolean>;
+    checkTcpPort(port: number, timeoutMs?: number): Promise<boolean>;
     /**
-     * Actively checks whether the unit is responding via ping or telnet.
-     * Never falsely claims standby if ping or telnet still answers.
+     * Actively checks whether the unit is responding via ping, telnet (port 44100), or HTTP (port 80).
+     * Returns a detailed status object and never falsely claims standby if any layer answers.
      */
+    probeUnitReachability(timeoutMs?: number): Promise<{
+        responding: boolean;
+        ping: boolean;
+        telnet: boolean;
+        http: boolean;
+    }>;
     checkIfResponding(timeoutMs?: number): Promise<boolean>;
     /**
      * Rapidly polls during start / stop / restart transitions to detect as soon as the unit

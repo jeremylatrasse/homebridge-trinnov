@@ -76,6 +76,9 @@ class TrinnovClient extends events_1.EventEmitter {
             minVolumeDb: config.minVolumeDb !== undefined ? config.minVolumeDb : -90.0,
             maxVolumeDb: config.maxVolumeDb !== undefined ? config.maxVolumeDb : 0.0,
         };
+        if (/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(this.config.host)) {
+            this.log.warn(`[${this.config.host}] Configuration warning: IP '${this.config.host}' has only 3 octets (expected 4 octets like 172.16.1.66). Connections may fail if a subnet octet was omitted.`);
+        }
     }
     start() {
         this.isDestroyed = false;
@@ -166,67 +169,52 @@ class TrinnovClient extends events_1.EventEmitter {
         });
     }
     /**
-     * Tests whether Trinnov telnet port (44100) connects and responds to command queries.
+     * Probes whether a TCP port (e.g. 44100 telnet or 80 http) connects.
+     * When Trinnov is in standby, the processor OS is completely shut down and all TCP ports reject/timeout.
      */
-    checkTelnetResponding(timeoutMs = 2000) {
+    checkTcpPort(port, timeoutMs = 1500) {
         return new Promise((resolve) => {
-            if (this.isConnected()) {
-                const onData = () => {
-                    clearTimeout(timer);
-                    resolve(true);
-                };
-                const timer = setTimeout(() => {
-                    this.removeListener('lineReceived', onData);
-                    resolve(false);
-                }, timeoutMs);
-                this.once('lineReceived', onData);
-                this.sendRaw('send_volume');
-                return;
-            }
             const probe = new net.Socket();
             let settled = false;
-            let rxBuf = '';
-            const finish = (responding) => {
-                if (settled) {
-                    return;
+            const finish = (open) => {
+                if (!settled) {
+                    settled = true;
+                    try {
+                        probe.removeAllListeners();
+                        probe.destroy();
+                    }
+                    catch {
+                        // ignore
+                    }
+                    resolve(open);
                 }
-                settled = true;
-                try {
-                    probe.removeAllListeners();
-                    probe.destroy();
-                }
-                catch {
-                    // ignore
-                }
-                resolve(responding);
             };
             probe.setTimeout(timeoutMs);
-            probe.on('connect', () => {
-                probe.write(`id ${this.config.clientName}-probe\r\nsend_volume\r\nget_current_profile\r\n`);
-            });
-            probe.on('data', (chunk) => {
-                rxBuf += chunk.toString('utf8');
-                if (rxBuf.trim().length > 0) {
-                    finish(true);
-                }
-            });
+            probe.on('connect', () => finish(true));
+            probe.on('data', () => finish(true));
             probe.on('timeout', () => finish(false));
             probe.on('error', () => finish(false));
             probe.on('close', () => finish(false));
-            probe.connect(this.config.port, this.config.host);
+            probe.connect(port, this.config.host);
         });
     }
     /**
-     * Actively checks whether the unit is responding via ping or telnet.
-     * Never falsely claims standby if ping or telnet still answers.
+     * Actively checks whether the unit is responding via ping, telnet (port 44100), or HTTP (port 80).
+     * Returns a detailed status object and never falsely claims standby if any layer answers.
      */
-    async checkIfResponding(timeoutMs = 2000) {
-        const pingOk = await this.pingHost(timeoutMs);
-        if (pingOk) {
-            return true;
-        }
-        const telnetOk = await this.checkTelnetResponding(timeoutMs);
-        return telnetOk;
+    async probeUnitReachability(timeoutMs = 1500) {
+        const pingPromise = this.pingHost(timeoutMs);
+        const telnetPromise = (this.socket && !this.socket.destroyed)
+            ? Promise.resolve(true)
+            : this.checkTcpPort(this.config.port, timeoutMs);
+        const httpPromise = this.checkTcpPort(80, timeoutMs);
+        const [ping, telnet, http] = await Promise.all([pingPromise, telnetPromise, httpPromise]);
+        const responding = ping || telnet || http;
+        return { responding, ping, telnet, http };
+    }
+    async checkIfResponding(timeoutMs = 1500) {
+        const status = await this.probeUnitReachability(timeoutMs);
+        return status.responding;
     }
     /**
      * Rapidly polls during start / stop / restart transitions to detect as soon as the unit
@@ -282,10 +270,9 @@ class TrinnovClient extends events_1.EventEmitter {
                 this.connect();
             }
             else if (mode === 'stop') {
-                const pingOk = await this.pingHost(1500);
-                const telnetOk = pingOk || await this.checkTelnetResponding(1500);
-                if (!pingOk && !telnetOk) {
-                    this.log.info(`[${this.config.host}] Unit is no longer responding to ping or telnet — standby confirmed (${elapsedSec}s elapsed).`);
+                const probe = await this.probeUnitReachability(1500);
+                if (!probe.responding) {
+                    this.log.info(`[${this.config.host}] Altitude is no longer responding (ping: no, telnet: closed, http: closed) — standby confirmed (${elapsedSec}s elapsed).`);
                     if (this.transitionTimer) {
                         clearInterval(this.transitionTimer);
                         this.transitionTimer = undefined;
@@ -299,7 +286,7 @@ class TrinnovClient extends events_1.EventEmitter {
                     }
                 }
                 else {
-                    this.log.info(`[${this.config.host}] Unit is still responding (ping: ${pingOk ? 'yes' : 'no'}, telnet: ${telnetOk ? 'yes' : 'no'}) (${elapsedSec}s elapsed)...`);
+                    this.log.info(`[${this.config.host}] Unit is still responding (ping: ${probe.ping ? 'yes' : 'no'}, telnet: ${probe.telnet ? 'open' : 'closed'}, http: ${probe.http ? 'open' : 'closed'}) (${elapsedSec}s elapsed)...`);
                 }
             }
         }, intervalMs);
@@ -383,13 +370,13 @@ class TrinnovClient extends events_1.EventEmitter {
             if (this.isDestroyed) {
                 return;
             }
-            // Check machine reachability via ICMP ping
-            const pingAlive = await this.pingHost(1500);
-            if (pingAlive) {
-                // Machine is powered on and answering network pings
+            // Check reachability across ICMP ping, Telnet (44100), and HTTP (80)
+            const probe = await this.probeUnitReachability(1500);
+            if (probe.responding) {
+                // Processor is powered on and answering network probes
                 if (!this.state.power) {
                     this.state.power = true;
-                    this.log.info(`[${this.config.host}] Altitude is online (ping responding) — power state active.`);
+                    this.log.info(`[${this.config.host}] Altitude is online (ping: ${probe.ping ? 'yes' : 'no'}, telnet: ${probe.telnet ? 'open' : 'closed'}, http: ${probe.http ? 'open' : 'closed'}) — power active.`);
                     this.emit('powerChange', true);
                 }
                 if (!this.socket || this.socket.destroyed) {
@@ -398,35 +385,21 @@ class TrinnovClient extends events_1.EventEmitter {
                     }
                 }
                 else {
-                    // Telnet is connected — query status & list outputs to verify responsiveness and update state
+                    // Query status & profiles to keep HomeKit state refreshed
                     this.sendRaw('send_volume');
                     this.sendRaw('get_current_profile');
                     this.sendRaw('get_all_label');
                 }
             }
             else {
-                // Ping did not answer — check if telnet port 44100 is still up
-                const telnetAlive = await this.checkTelnetResponding(1500);
-                if (telnetAlive) {
-                    if (!this.state.power) {
-                        this.state.power = true;
-                        this.log.info(`[${this.config.host}] Altitude is online (telnet responding) — power state active.`);
-                        this.emit('powerChange', true);
-                    }
-                    if (this.socket && !this.socket.destroyed) {
-                        this.sendRaw('send_volume');
-                    }
+                // All probes silent — unit is in standby / powered off
+                if (this.state.power) {
+                    this.state.power = false;
+                    this.log.info(`[${this.config.host}] Altitude is unreachable (ping, telnet, http silent) — in standby.`);
+                    this.emit('powerChange', false);
                 }
-                else {
-                    // Both ping and telnet are down — unit is in standby / powered off
-                    if (this.state.power) {
-                        this.state.power = false;
-                        this.log.info(`[${this.config.host}] Altitude is unreachable (ping and telnet silent) — in standby.`);
-                        this.emit('powerChange', false);
-                    }
-                    if (this.socket) {
-                        this.disconnect();
-                    }
+                if (this.socket) {
+                    this.disconnect();
                 }
             }
         }, this.config.heartbeatInterval * 1000);
