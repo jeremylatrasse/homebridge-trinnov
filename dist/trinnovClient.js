@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TrinnovClient = void 0;
+const child_process_1 = require("child_process");
 const events_1 = require("events");
 const net = __importStar(require("net"));
 const dgram = __importStar(require("dgram"));
@@ -49,8 +50,6 @@ class TrinnovClient extends events_1.EventEmitter {
     transitionTimer;
     powerOffDisconnectTimer;
     awaitingResponse = false;
-    lastDataReceivedAt = 0;
-    lastProbeSentAt = 0;
     config;
     state = {
         power: false,
@@ -121,10 +120,55 @@ class TrinnovClient extends events_1.EventEmitter {
         return this.socket !== null && !this.socket.destroyed && this.state.power;
     }
     /**
-     * Actively probes whether the Trinnov unit is accepting TCP connections and responding
-     * to protocol commands within the given timeout.
+     * Performs an ICMP ping against the Trinnov host.
      */
-    checkIfResponding(timeoutMs = 2000) {
+    pingHost(timeoutMs = 1500) {
+        return new Promise((resolve) => {
+            const isDarwin = process.platform === 'darwin';
+            const args = isDarwin
+                ? ['-c', '1', '-W', String(Math.max(1000, timeoutMs)), this.config.host]
+                : ['-c', '1', '-W', String(Math.max(1, Math.ceil(timeoutMs / 1000))), this.config.host];
+            let settled = false;
+            let cp;
+            try {
+                cp = (0, child_process_1.spawn)('ping', args);
+            }
+            catch {
+                resolve(false);
+                return;
+            }
+            const timer = setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    try {
+                        cp.kill('SIGKILL');
+                    }
+                    catch {
+                        // ignore
+                    }
+                    resolve(false);
+                }
+            }, timeoutMs + 300);
+            cp.on('close', (code) => {
+                if (!settled) {
+                    settled = true;
+                    clearTimeout(timer);
+                    resolve(code === 0);
+                }
+            });
+            cp.on('error', () => {
+                if (!settled) {
+                    settled = true;
+                    clearTimeout(timer);
+                    resolve(false);
+                }
+            });
+        });
+    }
+    /**
+     * Tests whether Trinnov telnet port (44100) connects and responds to command queries.
+     */
+    checkTelnetResponding(timeoutMs = 2000) {
         return new Promise((resolve) => {
             if (this.isConnected()) {
                 const onData = () => {
@@ -158,7 +202,7 @@ class TrinnovClient extends events_1.EventEmitter {
             };
             probe.setTimeout(timeoutMs);
             probe.on('connect', () => {
-                probe.write(`id ${this.config.clientName}-probe\nsend_volume\n`);
+                probe.write(`id ${this.config.clientName}-probe\r\nsend_volume\r\nget_current_profile\r\n`);
             });
             probe.on('data', (chunk) => {
                 rxBuf += chunk.toString('utf8');
@@ -171,6 +215,18 @@ class TrinnovClient extends events_1.EventEmitter {
             probe.on('close', () => finish(false));
             probe.connect(this.config.port, this.config.host);
         });
+    }
+    /**
+     * Actively checks whether the unit is responding via ping or telnet.
+     * Never falsely claims standby if ping or telnet still answers.
+     */
+    async checkIfResponding(timeoutMs = 2000) {
+        const pingOk = await this.pingHost(timeoutMs);
+        if (pingOk) {
+            return true;
+        }
+        const telnetOk = await this.checkTelnetResponding(timeoutMs);
+        return telnetOk;
     }
     /**
      * Rapidly polls during start / stop / restart transitions to detect as soon as the unit
@@ -193,7 +249,16 @@ class TrinnovClient extends events_1.EventEmitter {
             }
             const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
             if (Date.now() - startedAt > maxDurationMs) {
-                this.log.warn(`[${this.config.host}] Timed out after ${elapsedSec}s waiting for unit (${mode}).`);
+                if (mode === 'stop') {
+                    this.log.warn(`[${this.config.host}] Timed out after ${elapsedSec}s waiting for unit to enter standby — unit is still responding to ping/telnet. Power off was not executed.`);
+                    if (!this.state.power) {
+                        this.state.power = true;
+                        this.emit('powerChange', true);
+                    }
+                }
+                else {
+                    this.log.warn(`[${this.config.host}] Timed out after ${elapsedSec}s waiting for unit (${mode}).`);
+                }
                 if (this.transitionTimer) {
                     clearInterval(this.transitionTimer);
                     this.transitionTimer = undefined;
@@ -217,9 +282,10 @@ class TrinnovClient extends events_1.EventEmitter {
                 this.connect();
             }
             else if (mode === 'stop') {
-                const responding = await this.checkIfResponding(1500);
-                if (!responding) {
-                    this.log.info(`[${this.config.host}] Unit is no longer responding — standby confirmed (${elapsedSec}s elapsed).`);
+                const pingOk = await this.pingHost(1500);
+                const telnetOk = pingOk || await this.checkTelnetResponding(1500);
+                if (!pingOk && !telnetOk) {
+                    this.log.info(`[${this.config.host}] Unit is no longer responding to ping or telnet — standby confirmed (${elapsedSec}s elapsed).`);
                     if (this.transitionTimer) {
                         clearInterval(this.transitionTimer);
                         this.transitionTimer = undefined;
@@ -233,7 +299,7 @@ class TrinnovClient extends events_1.EventEmitter {
                     }
                 }
                 else {
-                    this.log.debug(`[${this.config.host}] Unit is still responding during shutdown (${elapsedSec}s elapsed)...`);
+                    this.log.info(`[${this.config.host}] Unit is still responding (ping: ${pingOk ? 'yes' : 'no'}, telnet: ${telnetOk ? 'yes' : 'no'}) (${elapsedSec}s elapsed)...`);
                 }
             }
         }, intervalMs);
@@ -257,7 +323,6 @@ class TrinnovClient extends events_1.EventEmitter {
         socket.on('connect', () => {
             this.isConnecting = false;
             this.awaitingResponse = true;
-            this.lastProbeSentAt = Date.now();
             this.log.info(`[${this.config.host}] TCP connected to Trinnov Altitude — checking if unit is responding...`);
             // Initial Trinnov handshake: announce client identifier
             this.sendRaw(`id ${this.config.clientName}`);
@@ -271,7 +336,6 @@ class TrinnovClient extends events_1.EventEmitter {
         });
         socket.on('timeout', () => {
             this.log.debug(`[${this.config.host}] Socket timeout - probing if unit is still responding...`);
-            this.lastProbeSentAt = Date.now();
             this.sendRaw('send_volume');
         });
         socket.on('error', (err) => {
@@ -312,22 +376,63 @@ class TrinnovClient extends events_1.EventEmitter {
         }
     }
     startHeartbeat() {
-        this.heartbeatTimer = setInterval(() => {
-            if (this.socket && !this.socket.destroyed) {
-                if (this.lastProbeSentAt > this.lastDataReceivedAt && Date.now() - this.lastProbeSentAt > this.config.heartbeatInterval * 2000) {
-                    this.log.warn(`[${this.config.host}] Unit stopped responding to heartbeat probes — reconnecting...`);
-                    this.handleSocketClose();
-                    return;
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+        }
+        this.heartbeatTimer = setInterval(async () => {
+            if (this.isDestroyed) {
+                return;
+            }
+            // Check machine reachability via ICMP ping
+            const pingAlive = await this.pingHost(1500);
+            if (pingAlive) {
+                // Machine is powered on and answering network pings
+                if (!this.state.power) {
+                    this.state.power = true;
+                    this.log.info(`[${this.config.host}] Altitude is online (ping responding) — power state active.`);
+                    this.emit('powerChange', true);
                 }
-                // Keep the stream alive and verify unit is still responding
-                this.lastProbeSentAt = Date.now();
-                this.sendRaw('send_volume');
+                if (!this.socket || this.socket.destroyed) {
+                    if (!this.isConnecting) {
+                        this.connect();
+                    }
+                }
+                else {
+                    // Telnet is connected — query status & list outputs to verify responsiveness and update state
+                    this.sendRaw('send_volume');
+                    this.sendRaw('get_current_profile');
+                    this.sendRaw('get_all_label');
+                }
+            }
+            else {
+                // Ping did not answer — check if telnet port 44100 is still up
+                const telnetAlive = await this.checkTelnetResponding(1500);
+                if (telnetAlive) {
+                    if (!this.state.power) {
+                        this.state.power = true;
+                        this.log.info(`[${this.config.host}] Altitude is online (telnet responding) — power state active.`);
+                        this.emit('powerChange', true);
+                    }
+                    if (this.socket && !this.socket.destroyed) {
+                        this.sendRaw('send_volume');
+                    }
+                }
+                else {
+                    // Both ping and telnet are down — unit is in standby / powered off
+                    if (this.state.power) {
+                        this.state.power = false;
+                        this.log.info(`[${this.config.host}] Altitude is unreachable (ping and telnet silent) — in standby.`);
+                        this.emit('powerChange', false);
+                    }
+                    if (this.socket) {
+                        this.disconnect();
+                    }
+                }
             }
         }, this.config.heartbeatInterval * 1000);
     }
     // --- Protocol Parsing ---
     markUnitResponding() {
-        this.lastDataReceivedAt = Date.now();
         if (this.awaitingResponse) {
             this.awaitingResponse = false;
             this.log.info(`[${this.config.host}] Trinnov Altitude is responding and ready`);
@@ -450,7 +555,7 @@ class TrinnovClient extends events_1.EventEmitter {
             return;
         }
         this.log.debug(`[Trinnov TX] ${command}`);
-        this.socket.write(`${command}\n`);
+        this.socket.write(`${command}\r\n`);
     }
     /**
      * Power On via Wake-on-LAN (UDP magic packet).
@@ -487,22 +592,60 @@ class TrinnovClient extends events_1.EventEmitter {
         this.startResponsivenessPolling('start');
     }
     /**
+     * Transmits the secured shutdown sequence over telnet.
+     */
+    sendPowerOffCommand() {
+        return new Promise((resolve) => {
+            const shutdownCommands = [
+                'power off SECURED FHZMCH48FE',
+                'power_off SECURED FHZMCH48FE',
+                'power_off_SECURED_FHZMCH48FE',
+                'power_off',
+            ];
+            const payload = shutdownCommands.map((cmd) => `${cmd}\r\n`).join('');
+            if (this.socket && !this.socket.destroyed && !this.isConnecting) {
+                this.log.info(`[Trinnov TX] Sending shutdown commands (CRLF):\n${shutdownCommands.join('\n')}`);
+                this.socket.write(`id ${this.config.clientName}\r\n${payload}`, () => {
+                    resolve();
+                });
+                return;
+            }
+            this.log.info(`[${this.config.host}] Connecting direct socket to send shutdown commands...`);
+            const directSocket = new net.Socket();
+            let settled = false;
+            const finish = () => {
+                if (!settled) {
+                    settled = true;
+                    try {
+                        directSocket.removeAllListeners();
+                        directSocket.destroy();
+                    }
+                    catch {
+                        // ignore
+                    }
+                    resolve();
+                }
+            };
+            directSocket.setTimeout(5000);
+            directSocket.on('connect', () => {
+                directSocket.write(`id ${this.config.clientName}\r\n${payload}`, () => {
+                    setTimeout(finish, 800);
+                });
+            });
+            directSocket.on('timeout', () => finish());
+            directSocket.on('error', () => finish());
+            directSocket.on('close', () => finish());
+            directSocket.connect(this.config.port, this.config.host);
+        });
+    }
+    /**
      * Power Off / Standby over TCP automation connection.
      */
-    powerOff() {
+    async powerOff() {
         this.log.info(`[${this.config.host}] Sending power off / standby to Altitude...`);
-        // Both standard power_off and token supported by various firmware
-        this.sendRaw('power_off');
-        this.sendRaw('power_off_SECURED_FHZMCH48FE');
-        // Poll to verify when the unit stops responding and enters standby
-        this.startResponsivenessPolling('stop', 30000, 1500);
-        if (this.powerOffDisconnectTimer) {
-            clearTimeout(this.powerOffDisconnectTimer);
-        }
-        this.powerOffDisconnectTimer = setTimeout(() => {
-            this.powerOffDisconnectTimer = undefined;
-            this.disconnect();
-        }, 1500);
+        await this.sendPowerOffCommand();
+        // Poll with ping and telnet to verify when the unit actually stops responding
+        this.startResponsivenessPolling('stop', 60000, 2000);
     }
     /**
      * Set master volume in decibels (e.g. -35.5 dB)

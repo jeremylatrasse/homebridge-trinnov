@@ -47,8 +47,6 @@ export declare class TrinnovClient extends EventEmitter {
     private transitionTimer?;
     private powerOffDisconnectTimer?;
     private awaitingResponse;
-    private lastDataReceivedAt;
-    private lastProbeSentAt;
     readonly config: Required<TrinnovClientConfig>;
     state: TrinnovState;
     constructor(config: TrinnovClientConfig, log: LoggerLike);
@@ -58,8 +56,16 @@ export declare class TrinnovClient extends EventEmitter {
     private clearTimers;
     isConnected(): boolean;
     /**
-     * Actively probes whether the Trinnov unit is accepting TCP connections and responding
-     * to protocol commands within the given timeout.
+     * Performs an ICMP ping against the Trinnov host.
+     */
+    pingHost(timeoutMs?: number): Promise<boolean>;
+    /**
+     * Tests whether Trinnov telnet port (44100) connects and responds to command queries.
+     */
+    checkTelnetResponding(timeoutMs?: number): Promise<boolean>;
+    /**
+     * Actively checks whether the unit is responding via ping or telnet.
+     * Never falsely claims standby if ping or telnet still answers.
      */
     checkIfResponding(timeoutMs?: number): Promise<boolean>;
     /**
@@ -82,9 +88,13 @@ export declare class TrinnovClient extends EventEmitter {
      */
     powerOn(): Promise<void>;
     /**
+     * Transmits the secured shutdown sequence over telnet.
+     */
+    sendPowerOffCommand(): Promise<void>;
+    /**
      * Power Off / Standby over TCP automation connection.
      */
-    powerOff(): void;
+    powerOff(): Promise<void>;
     /**
      * Set master volume in decibels (e.g. -35.5 dB)
      */

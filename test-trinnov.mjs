@@ -88,4 +88,22 @@ assert.strictEqual(deviceSchema.properties.host.format, undefined, 'host must no
 assert.strictEqual(deviceSchema.properties.inputs.items.required, undefined, 'inputs.items must not mark id/name required (breaks id: 0 and unnamed profiles in Homebridge UI)');
 assert.strictEqual(deviceSchema.properties.presets.items.required, undefined, 'presets.items must not mark id/name required (breaks unnamed presets in Homebridge UI)');
 
+// Test 7: ICMP ping and telnet query responsiveness checks
+const localClient = new TrinnovClient(
+  {
+    host: '127.0.0.1',
+    port: 44100,
+  },
+  mockLogger,
+);
+
+const localhostPing = await localClient.pingHost(1000);
+assert.strictEqual(localhostPing, true, 'pingHost should succeed on 127.0.0.1');
+
+const responding = await localClient.checkIfResponding(1000);
+assert.strictEqual(responding, true, 'checkIfResponding should report true if ping succeeds');
+
+assert.strictEqual(typeof localClient.sendPowerOffCommand, 'function', 'sendPowerOffCommand should be a function');
+localClient.stop();
+
 console.log('✅ All tests passed successfully!');
