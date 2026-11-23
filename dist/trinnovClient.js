@@ -34,11 +34,60 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TrinnovClient = void 0;
+exports.resolvePingPath = resolvePingPath;
 exports.validateTrinnovHost = validateTrinnovHost;
-const child_process_1 = require("child_process");
-const events_1 = require("events");
-const net = __importStar(require("net"));
-const dgram = __importStar(require("dgram"));
+const node_child_process_1 = require("node:child_process");
+const dgram = __importStar(require("node:dgram"));
+const node_events_1 = require("node:events");
+const node_fs_1 = require("node:fs");
+const net = __importStar(require("node:net"));
+const node_path_1 = require("node:path");
+const STANDARD_PING_SEARCH_DIRS = [
+    '/sbin',
+    '/bin',
+    '/usr/sbin',
+    '/usr/bin',
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+];
+function defaultIsExecutable(candidatePath) {
+    try {
+        (0, node_fs_1.accessSync)(candidatePath, node_fs_1.constants.X_OK);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * Resolves the `ping` binary across `PATH` and standard macOS/Linux system directories
+ * so ICMP checks continue to work when Homebridge runs inside a restricted Child Bridge,
+ * launchd, systemd, or Docker environment.
+ */
+function resolvePingPath(options = {}) {
+    const configured = (options.configuredPath ?? 'ping').trim() || 'ping';
+    const checkExec = options.isExecutable ?? defaultIsExecutable;
+    if ((0, node_path_1.isAbsolute)(configured) || configured.includes('/')) {
+        return checkExec(configured) ? configured : null;
+    }
+    const envPath = options.envPath ?? process.env.PATH ?? '';
+    const pathDirs = envPath
+        .split(node_path_1.delimiter)
+        .map((d) => d.trim())
+        .filter((d) => d.length > 0);
+    const seen = new Set();
+    for (const dir of [...pathDirs, ...STANDARD_PING_SEARCH_DIRS]) {
+        if (seen.has(dir)) {
+            continue;
+        }
+        seen.add(dir);
+        const candidate = (0, node_path_1.join)(dir, configured);
+        if (checkExec(candidate)) {
+            return candidate;
+        }
+    }
+    return null;
+}
 /**
  * Validates that an IPv4 address has exactly 4 octets between 0 and 255.
  * Also permits standard RFC 1123 hostnames (e.g. altitude.local).
@@ -95,7 +144,7 @@ function validateTrinnovHost(host) {
     }
     return { valid: true };
 }
-class TrinnovClient extends events_1.EventEmitter {
+class TrinnovClient extends node_events_1.EventEmitter {
     log;
     socket = null;
     isConnecting = false;
@@ -148,7 +197,7 @@ class TrinnovClient extends events_1.EventEmitter {
     stop() {
         this.isDestroyed = true;
         this.clearTimers();
-        this.disconnect();
+        this.disconnect(true);
     }
     restart() {
         this.log.info(`[${this.config.host}] Restarting Trinnov client connection & checking if unit is responding...`);
@@ -186,6 +235,11 @@ class TrinnovClient extends events_1.EventEmitter {
      */
     pingHost(timeoutMs = 1500) {
         return new Promise((resolve) => {
+            const pingBinary = resolvePingPath();
+            if (!pingBinary) {
+                resolve(false);
+                return;
+            }
             const isDarwin = process.platform === 'darwin';
             const args = isDarwin
                 ? ['-c', '1', '-W', String(Math.max(1000, timeoutMs)), this.config.host]
@@ -193,7 +247,7 @@ class TrinnovClient extends events_1.EventEmitter {
             let settled = false;
             let cp;
             try {
-                cp = (0, child_process_1.spawn)('ping', args);
+                cp = (0, node_child_process_1.spawn)(pingBinary, args);
             }
             catch {
                 resolve(false);
@@ -400,10 +454,13 @@ class TrinnovClient extends events_1.EventEmitter {
         });
         socket.connect(this.config.port, this.config.host);
     }
-    disconnect() {
+    disconnect(sendBye = false) {
         if (this.socket) {
             try {
                 this.socket.removeAllListeners();
+                if (sendBye && !this.socket.destroyed && !this.isConnecting) {
+                    this.socket.write('bye\r\n');
+                }
                 this.socket.end();
                 this.socket.destroy();
             }

@@ -1,4 +1,4 @@
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 export interface TrinnovClientConfig {
     host: string;
     port?: number;
@@ -35,6 +35,17 @@ export interface LoggerLike {
     error(message: string, ...parameters: unknown[]): void;
     debug(message: string, ...parameters: unknown[]): void;
 }
+export interface ResolvePingPathOptions {
+    configuredPath?: string;
+    envPath?: string;
+    isExecutable?: (candidatePath: string) => boolean;
+}
+/**
+ * Resolves the `ping` binary across `PATH` and standard macOS/Linux system directories
+ * so ICMP checks continue to work when Homebridge runs inside a restricted Child Bridge,
+ * launchd, systemd, or Docker environment.
+ */
+export declare function resolvePingPath(options?: ResolvePingPathOptions): string | null;
 /**
  * Validates that an IPv4 address has exactly 4 octets between 0 and 255.
  * Also permits standard RFC 1123 hostnames (e.g. altitude.local).

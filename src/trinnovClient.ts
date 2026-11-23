@@ -1,7 +1,9 @@
-import { spawn } from 'child_process';
-import { EventEmitter } from 'events';
-import * as net from 'net';
-import * as dgram from 'dgram';
+import { spawn } from 'node:child_process';
+import * as dgram from 'node:dgram';
+import { EventEmitter } from 'node:events';
+import { accessSync, constants as fsConstants } from 'node:fs';
+import * as net from 'node:net';
+import { delimiter, isAbsolute, join } from 'node:path';
 
 export interface TrinnovClientConfig {
   host: string;
@@ -42,6 +44,64 @@ export interface LoggerLike {
   warn(message: string, ...parameters: unknown[]): void;
   error(message: string, ...parameters: unknown[]): void;
   debug(message: string, ...parameters: unknown[]): void;
+}
+
+export interface ResolvePingPathOptions {
+  configuredPath?: string;
+  envPath?: string;
+  isExecutable?: (candidatePath: string) => boolean;
+}
+
+const STANDARD_PING_SEARCH_DIRS = [
+  '/sbin',
+  '/bin',
+  '/usr/sbin',
+  '/usr/bin',
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+];
+
+function defaultIsExecutable(candidatePath: string): boolean {
+  try {
+    accessSync(candidatePath, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolves the `ping` binary across `PATH` and standard macOS/Linux system directories
+ * so ICMP checks continue to work when Homebridge runs inside a restricted Child Bridge,
+ * launchd, systemd, or Docker environment.
+ */
+export function resolvePingPath(options: ResolvePingPathOptions = {}): string | null {
+  const configured = (options.configuredPath ?? 'ping').trim() || 'ping';
+  const checkExec = options.isExecutable ?? defaultIsExecutable;
+
+  if (isAbsolute(configured) || configured.includes('/')) {
+    return checkExec(configured) ? configured : null;
+  }
+
+  const envPath = options.envPath ?? process.env.PATH ?? '';
+  const pathDirs = envPath
+    .split(delimiter)
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0);
+
+  const seen = new Set<string>();
+  for (const dir of [...pathDirs, ...STANDARD_PING_SEARCH_DIRS]) {
+    if (seen.has(dir)) {
+      continue;
+    }
+    seen.add(dir);
+    const candidate = join(dir, configured);
+    if (checkExec(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -163,7 +223,7 @@ export class TrinnovClient extends EventEmitter {
   public stop(): void {
     this.isDestroyed = true;
     this.clearTimers();
-    this.disconnect();
+    this.disconnect(true);
   }
 
   public restart(): void {
@@ -205,15 +265,21 @@ export class TrinnovClient extends EventEmitter {
    */
   public pingHost(timeoutMs = 1500): Promise<boolean> {
     return new Promise((resolve) => {
+      const pingBinary = resolvePingPath();
+      if (!pingBinary) {
+        resolve(false);
+        return;
+      }
+
       const isDarwin = process.platform === 'darwin';
       const args = isDarwin
         ? ['-c', '1', '-W', String(Math.max(1000, timeoutMs)), this.config.host]
         : ['-c', '1', '-W', String(Math.max(1, Math.ceil(timeoutMs / 1000))), this.config.host];
 
       let settled = false;
-      let cp: any;
+      let cp: ReturnType<typeof spawn>;
       try {
-        cp = spawn('ping', args);
+        cp = spawn(pingBinary, args);
       } catch {
         resolve(false);
         return;
@@ -455,10 +521,13 @@ export class TrinnovClient extends EventEmitter {
     socket.connect(this.config.port, this.config.host);
   }
 
-  private disconnect(): void {
+  private disconnect(sendBye = false): void {
     if (this.socket) {
       try {
         this.socket.removeAllListeners();
+        if (sendBye && !this.socket.destroyed && !this.isConnecting) {
+          this.socket.write('bye\r\n');
+        }
         this.socket.end();
         this.socket.destroy();
       } catch {

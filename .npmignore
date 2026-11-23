@@ -1,10 +1,14 @@
 src/
+homebridge-trinnov/
+homebridge-trinnov.xcodeproj/
 .github/
 .githooks/
 .vscode/
+.idea/
 tsconfig.json
 Makefile
 test-trinnov.mjs
+MAINTAINING.md
 *.xcodeproj/
 *.pbxproj
 *.xcworkspace/

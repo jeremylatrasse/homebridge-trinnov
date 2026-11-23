@@ -10,7 +10,29 @@
       "name": {
         "title": "Platform Name",
         "type": "string",
-        "default": "Trinnov Altitude"
+        "default": "Trinnov Altitude",
+        "description": "The name for this platform instance in Homebridge."
+      },
+      "platform": {
+        "title": "Platform Identifier",
+        "type": "string",
+        "default": "TrinnovAltitude"
+      },
+      "_bridge": {
+        "type": "object",
+        "title": "Child Bridge",
+        "description": "Optional Homebridge Child Bridge settings (managed via Bridge Settings in Homebridge UI).",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
       },
       "devices": {
         "title": "Trinnov Altitude Devices",
@@ -36,6 +58,11 @@
               "title": "Automation Port",
               "type": "integer",
               "default": 44100,
+              "minimum": 1,
+              "maximum": 65535,
+              "x-schema-form": {
+                "type": "number"
+              },
               "description": "Trinnov ASCII automation TCP port (default is 44100)."
             },
             "mac": {
@@ -48,12 +75,22 @@
               "title": "Minimum Volume (dB)",
               "type": "number",
               "default": -90.0,
+              "minimum": -120.0,
+              "maximum": 0.0,
+              "x-schema-form": {
+                "type": "number"
+              },
               "description": "Volume corresponding to 0% in HomeKit (default: -90.0 dB)."
             },
             "maxVolumeDb": {
               "title": "Maximum Volume (dB)",
               "type": "number",
               "default": 0.0,
+              "minimum": -80.0,
+              "maximum": 20.0,
+              "x-schema-form": {
+                "type": "number"
+              },
               "description": "Volume corresponding to 100% in HomeKit (default: 0.0 dB; protects speakers from accidental max volume)."
             },
             "enableVolumeSlider": {
@@ -110,7 +147,12 @@
                   "id": {
                     "title": "Profile Index",
                     "type": "integer",
-                    "default": 0
+                    "default": 0,
+                    "minimum": 0,
+                    "maximum": 64,
+                    "x-schema-form": {
+                      "type": "number"
+                    }
                   },
                   "name": {
                     "title": "Input Name",
@@ -141,7 +183,12 @@
                   "id": {
                     "title": "Preset Index",
                     "type": "integer",
-                    "default": 1
+                    "default": 1,
+                    "minimum": 0,
+                    "maximum": 64,
+                    "x-schema-form": {
+                      "type": "number"
+                    }
                   },
                   "name": {
                     "title": "Preset Name",

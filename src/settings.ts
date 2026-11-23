@@ -14,10 +14,21 @@ export const PLATFORM_NAME = 'TrinnovAltitude';
 export const PLUGIN_NAME = 'homebridge-trinnov-altitude';
 
 /**
+ * Default Trinnov ASCII automation TCP port.
+ */
+export const TRINNOV_DEFAULT_PORT = 44100;
+
+/**
+ * Discovery file written into Homebridge storagePath so companion plugins
+ * (such as homebridge-pulse8-appletv-cec) can discover live Trinnov processors.
+ */
+export const TRINNOV_DISCOVERY_FILENAME = 'homebridge-trinnov-discovery.json';
+
+/**
  * Reads the current plugin version from package.json dynamically so
  * Homebridge logs and HomeKit FirmwareRevision always match package.json.
  */
-function loadPluginVersion(): string {
+export function loadPluginVersion(): string {
   try {
     const pkgPath = join(__dirname, '..', 'package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };

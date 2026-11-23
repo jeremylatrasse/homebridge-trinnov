@@ -6,8 +6,6 @@ import { TrinnovAltitudePlatform } from './platform';
 /**
  * Entry point for Homebridge to load the plugin.
  */
-const init = (api: API): void => {
+export = (api: API): void => {
   api.registerPlatform(PLUGIN_NAME, PLATFORM_NAME, TrinnovAltitudePlatform);
 };
-
-export = init;
