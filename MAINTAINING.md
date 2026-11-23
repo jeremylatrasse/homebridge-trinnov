@@ -178,22 +178,24 @@ This repository uses local hooks (`pre-commit`, `post-commit`, `pre-push`, insta
   SKIP_VERSION_BUMP=1 git commit -m "..."
   ```
 
-### GitHub Actions (`.github/workflows/bump-version.yml`)
-* On every push to `main` / `master` (except `chore(release):` or `[skip ci]` commits), CI checks out the repo and creates/updates the `vX.Y.Z` git tag matching `package.json`.
+### GitHub Actions & OIDC Release Pipeline (`.github/workflows/bump-version.yml`)
+* On every push to `main` / `master` (except `chore(release):` or `[skip ci]` commits), CI installs dependencies, runs `npm test`, creates/updates the `vX.Y.Z` git tag matching `package.json`, and publishes the new version to npm (skipping publish if that version already exists on npm).
+* Publishing uses **npm Trusted Publishing (OIDC)** via `id-token: write` and Node 24 (`npm >= 11.5.1`), automatically attaching **SLSA provenance attestation** on public repos with no long-lived `NPM_TOKEN` required (or falling back to a GitHub `NPM_TOKEN` secret if explicitly configured).
+* **One-time npm Trusted Publisher setup** (for a new package, publish manually once first so npmjs.com exposes the Access settings):
+  1. On **npmjs.com**, open **Package Settings → Access → Trusted Publisher → GitHub Actions**.
+  2. Configure owner `jeremylatrasse`, repository `homebridge-trinnov`, workflow filename `bump-version.yml`, **blank Environment**, and enable **Allow npm publish**.
+  3. Every subsequent push to `main` publishes automatically with SLSA provenance attestation (allow ~2–3 minutes for npm's CDN to propagate `latest`).
 * **Do not** add a second unconditional `npm version patch` step in CI while local `pre-commit` hooks are active, or every commit will be double-bumped.
 
 ### Publishing to npm & `homebridge/verified` Checklist
-1. Inspect what will be included in the npm tarball (`.npmignore` excludes `src/`, tests, Xcode project, `.github/`, `.githooks/`, and `MAINTAINING.md`):
+1. Inspect what will be included in the npm tarball (`package.json` `files` allowlist includes only `dist`, `config.schema.json`, `LICENSE`, `README.md`, and `package.json`):
    ```bash
    npm pack --dry-run
    ```
 2. Run `npm test` and confirm clean `git status`.
-3. Publish (runs `prepublishOnly` $\rightarrow$ `npm run compile`):
-   ```bash
-   npm publish --access public
-   ```
+3. Push to `main` to trigger automated OIDC publishing (or publish manually with `npm publish --access public`, which runs `prepublishOnly` $\rightarrow$ `npm run compile`).
 4. Before submitting or updating `github.com/homebridge/verified`:
    * Published publicly on npm with `"homebridge-plugin"` in `package.json` `keywords`.
    * Valid `config.schema.json` at root, `pluginAlias` matching `src/settings.ts`, and zero slider fields.
    * Child Bridge safe when the Trinnov processor is in standby or offline.
-   * `README.md` documents installation, Apple Home pairing, Wake-on-LAN MAC configuration, and configuration options.
+   * `README.md` documents npm installation, Apple Home & Child Bridge pairing, Wake-on-LAN MAC configuration, and the Configuration Options table.

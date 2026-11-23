@@ -24,27 +24,9 @@ A dynamic platform plugin for [Homebridge](https://homebridge.io) that gives you
 
 ## Installation
 
-### Option 1: Install Directly from GitHub (No Local Build Required)
+### Option 1: Install via Homebridge Config UI X (Recommended)
 
-Because `dist/` is pre-compiled and committed in the repository and `package.json` avoids git preparation/build hooks, `npm` installs the pre-built tarball directly from GitHub without installing `devDependencies` or running a local build on the target machine:
-
-```bash
-# 1. Install globally (macOS Homebrew / Linux / Homebridge UI Terminal):
-npm install -g https://github.com/jeremylatrasse/homebridge-trinnov --verbose
-
-# 2. Or if your Homebridge instance uses a local plugin directory (e.g. /var/lib/homebridge):
-cd /var/lib/homebridge && npm install https://github.com/jeremylatrasse/homebridge-trinnov --verbose
-```
-
-### Option 2: Install Locally from this Clone (macOS Development / Local Host)
-
-If Homebridge is running on the same Mac as this repository (`/Users/avalo/Documents/homebridge-trinnov`), you can link or install it directly without touching GitHub:
-
-```bash
-npm install -g /Users/avalo/Documents/homebridge-trinnov
-```
-
-### Option 3: Install from npm (Once Published)
+Search for **`homebridge-trinnov-altitude`** in the Homebridge UI Plugins tab and click **Install**, or install via CLI:
 
 ```bash
 hb-service add homebridge-trinnov-altitude
@@ -52,18 +34,32 @@ hb-service add homebridge-trinnov-altitude
 npm install -g homebridge-trinnov-altitude
 ```
 
+### Option 2: Install Directly from GitHub (No Local Build Required)
+
+Because `dist/` is pre-compiled and committed in the repository and `package.json` avoids git preparation/build hooks, `npm` installs the pre-built tarball directly from GitHub without installing `devDependencies` or running a local build on the target machine:
+
+```bash
+# 1. Install globally (macOS Homebrew / Linux / Homebridge UI Terminal):
+npm install -g https://github.com/jeremylatrasse/homebridge-trinnov
+
+# 2. Or if your Homebridge instance uses a local plugin directory (e.g. /var/lib/homebridge):
+cd /var/lib/homebridge && npm install https://github.com/jeremylatrasse/homebridge-trinnov
+```
+
 ---
 
-## Pairing with Apple Home
+## Pairing with Apple Home & Child Bridge
 
-Because Apple HomeKit requires Television / Receiver accessories to be exposed independently (unbridged):
+Running this plugin as a **Child Bridge** (in Homebridge UI → Plugins → `homebridge-trinnov-altitude` → **Bridge Settings**) is supported and recommended so restarts or network hiccups stay isolated from other accessories.
 
-1. Start Homebridge.
+Because Apple HomeKit requires Television / Receiver accessories to be exposed as external accessories (unbridged):
+
+1. Save your configuration and start/restart Homebridge (or the plugin's Child Bridge).
 2. Open the **Apple Home app** on your iOS device.
 3. Tap **+** in the top right corner and choose **Add Accessory**.
 4. Tap **More options...** (or *Don't Have a Code or Can't Scan?*).
-5. You will see your **Trinnov Altitude32** under *Nearby Accessories*.
-6. Tap on it and enter your standard Homebridge PIN code (default: `031-45-154`).
+5. Select your **Trinnov Altitude32** under *Nearby Accessories*.
+6. Enter the pairing PIN code shown in Homebridge UI (either your Child Bridge's PIN if running in Child Bridge mode, or your main Homebridge PIN).
 
 ---
 
