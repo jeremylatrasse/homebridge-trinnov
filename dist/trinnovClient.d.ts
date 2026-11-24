@@ -84,8 +84,12 @@ export declare class TrinnovClient extends EventEmitter {
      */
     checkTcpPort(port: number, timeoutMs?: number): Promise<boolean>;
     /**
-     * Actively checks whether the unit is responding via ping, telnet (port 44100), or HTTP (port 80).
-     * Returns a detailed status object and never falsely claims standby if any layer answers.
+     * Actively checks whether the unit is responding via ICMP ping and HTTP (port 80),
+     * without opening extra throwaway TCP connections to the automation port (44100).
+     *
+     * Trinnov Altitude's automation server enforces a strict concurrent-client limit and
+     * can stall subsequent clients (such as companion plugins like homebridge-pulse8-appletv-cec)
+     * if raw sockets connect to port 44100 and drop without a graceful `bye`.
      */
     probeUnitReachability(timeoutMs?: number): Promise<{
         responding: boolean;

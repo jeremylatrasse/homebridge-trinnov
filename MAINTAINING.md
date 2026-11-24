@@ -37,7 +37,7 @@ Homebridge users often install directly from GitHub (`npm install git+https://gi
 ### B. Child Bridge & Hardware Resilience
 * Never throw uncaught exceptions during startup or `didFinishLaunching` if a Trinnov Altitude processor is in standby, unreachable, or misconfigured (`validateTrinnovHost()` logs a clear error and skips invalid hosts in `discoverDevices()`).
 * `resolvePingPath()` checks `PATH` plus standard macOS/Linux directories (`/sbin`, `/bin`, `/usr/sbin`, `/usr/bin`, `/opt/homebrew/bin`, `/usr/local/bin`) because `launchd`/`systemd`/Docker Child Bridges often omit `/sbin`.
-* When a Trinnov Altitude processor enters standby, its internal Linux OS powers down completely. `probeUnitReachability()` checks ICMP `ping`, TCP automation (`44100`), and HTTP (`80`) concurrently so a half-open TCP socket never falsely reports the unit as awake when `ping` and `http` are both silent.
+* When a Trinnov Altitude processor enters standby, its internal Linux OS powers down completely. `probeUnitReachability()` checks ICMP `ping` and HTTP (`80`) concurrently so a half-open TCP socket never falsely reports the unit as awake when `ping` and `http` are both silent, **without** opening extra throwaway TCP probe sockets to port `44100` (which would contend with Trinnov's automation client limit and stall companion plugins such as `homebridge-pulse8-appletv-cec`).
 * On Homebridge `shutdown`, stop all `TrinnovClient` instances (clearing timers and sending `bye\r\n` before closing open TCP sockets).
 
 ---

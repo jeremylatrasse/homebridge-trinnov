@@ -349,8 +349,12 @@ export class TrinnovClient extends EventEmitter {
   }
 
   /**
-   * Actively checks whether the unit is responding via ping, telnet (port 44100), or HTTP (port 80).
-   * Returns a detailed status object and never falsely claims standby if any layer answers.
+   * Actively checks whether the unit is responding via ICMP ping and HTTP (port 80),
+   * without opening extra throwaway TCP connections to the automation port (44100).
+   *
+   * Trinnov Altitude's automation server enforces a strict concurrent-client limit and
+   * can stall subsequent clients (such as companion plugins like homebridge-pulse8-appletv-cec)
+   * if raw sockets connect to port 44100 and drop without a graceful `bye`.
    */
   public async probeUnitReachability(timeoutMs = 1500): Promise<{
     responding: boolean;
@@ -358,9 +362,8 @@ export class TrinnovClient extends EventEmitter {
     telnet: boolean;
     http: boolean;
   }> {
-    const [ping, telnet, http] = await Promise.all([
+    const [ping, http] = await Promise.all([
       this.pingHost(timeoutMs),
-      this.checkTcpPort(this.config.port, timeoutMs),
       this.checkTcpPort(80, timeoutMs),
     ]);
 
@@ -373,7 +376,8 @@ export class TrinnovClient extends EventEmitter {
       return { responding: false, ping: false, telnet: false, http: false };
     }
 
-    const responding = ping || telnet || http;
+    const telnet = this.socket !== null && !this.socket.destroyed && !this.isConnecting;
+    const responding = ping || http;
     return { responding, ping, telnet, http };
   }
 
@@ -523,17 +527,30 @@ export class TrinnovClient extends EventEmitter {
 
   private disconnect(sendBye = false): void {
     if (this.socket) {
+      const sock = this.socket;
+      this.socket = null;
       try {
-        this.socket.removeAllListeners();
-        if (sendBye && !this.socket.destroyed && !this.isConnecting) {
-          this.socket.write('bye\r\n');
+        sock.removeAllListeners();
+        if (sendBye && !sock.destroyed && !this.isConnecting && sock.writable) {
+          sock.end('bye\r\n');
+          const forceDestroy = setTimeout(() => {
+            if (!sock.destroyed) {
+              sock.destroy();
+            }
+          }, 150);
+          forceDestroy.unref();
+        } else {
+          sock.end();
+          sock.destroy();
         }
-        this.socket.end();
-        this.socket.destroy();
       } catch {
         // ignore errors on tear-down
+        try {
+          sock.destroy();
+        } catch {
+          // ignore
+        }
       }
-      this.socket = null;
     }
     this.isConnecting = false;
   }

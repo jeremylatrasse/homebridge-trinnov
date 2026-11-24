@@ -236,7 +236,9 @@ testClient.stop();
 
 // Test 10: Mock TCP server handshake, graceful 'bye' on shutdown, and homebridge-trinnov-discovery.json output
 const receivedCommands = [];
+let mockServerConnections = 0;
 const mockServer = net.createServer((socket) => {
+  mockServerConnections += 1;
   socket.write('Welcome on Trinnov Optimizer (Version 4.3.2, ID 1042)\r\n');
   socket.on('data', (chunk) => {
     const lines = chunk.toString('utf8').split(/\r?\n/).filter(Boolean);
@@ -338,7 +340,7 @@ try {
     },
   };
 
-  new TrinnovAltitudePlatform(
+  const platformInstance = new TrinnovAltitudePlatform(
     mockLogger,
     {
       platform: `${PLUGIN_NAME}.${PLATFORM_NAME}`,
@@ -360,6 +362,17 @@ try {
 
   assert.strictEqual(publishedAccessories.length, 1, 'Should publish 1 external Receiver accessory');
   assert.ok(receivedCommands.includes('id Homebridge'), 'Should send id handshake on connect');
+
+  // Verify probeUnitReachability() does NOT open extra throwaway sockets to the automation port
+  const connectionsBeforeProbe = mockServerConnections;
+  const mockProbe = await platformInstance['clients'][0].probeUnitReachability(1000);
+  assert.strictEqual(mockProbe.responding, true, 'Mock client reachability should be true on localhost');
+  assert.strictEqual(mockProbe.telnet, true, 'Mock client telnet state should reflect active automation socket');
+  assert.strictEqual(
+    mockServerConnections,
+    connectionsBeforeProbe,
+    'probeUnitReachability must not open extra TCP connections to the Trinnov automation port',
+  );
 
   const discoveryFile = join(tmpStorage, TRINNOV_DISCOVERY_FILENAME);
   assert.ok(existsSync(discoveryFile), 'Should write homebridge-trinnov-discovery.json to storagePath');
